@@ -1,0 +1,81 @@
+{
+  "about": "One-click display filters for the Packets tab. Every filter is Wireshark syntax and picks the same packets in Wireshark (tests/test_templates.py checks each against the engine; python -m anta.tools.compare_filters against tshark).",
+  "groups": [
+    {
+      "name": "Connection problems",
+      "templates": [
+        {"name": "TCP problems", "filter": "tcp.analysis.flags && !tcp.analysis.window_update",
+         "about": "Everything TCP analysis flags except window updates: retransmissions, lost segments, duplicate ACKs, zero windows, resets of kept-alive connections. Wireshark's \"Bad TCP\" coloring rule."},
+        {"name": "Retransmissions", "filter": "tcp.analysis.retransmission || tcp.analysis.fast_retransmission || tcp.analysis.spurious_retransmission",
+         "about": "Data sent again because it was lost or not acknowledged in time."},
+        {"name": "Lost segments and duplicate ACKs", "filter": "tcp.analysis.lost_segment || tcp.analysis.ack_lost_segment || tcp.analysis.duplicate_ack",
+         "about": "Gaps in the data and the receiver asking for what is missing: packet loss on the path."},
+        {"name": "Receiver full (zero window)", "filter": "tcp.analysis.zero_window || tcp.analysis.window_full",
+         "about": "A receiver that stopped reading, so the sender has to wait: a slow or stuck application, not the network."},
+        {"name": "Connection resets", "filter": "tcp.flags.reset == 1",
+         "about": "Connections refused or torn down abruptly."},
+        {"name": "Connection attempts", "filter": "tcp.flags.syn == 1 && tcp.flags.ack == 0",
+         "about": "Every new TCP connection a client tried to open (answered or not)."},
+        {"name": "ICMP errors", "filter": "icmp.type == 3 || icmp.type == 11 || icmpv6.type == 1 || icmpv6.type == 3",
+         "about": "Unreachable hosts, ports and networks, firewalls that reject, and packets that ran out of hops (TTL exceeded)."},
+        {"name": "Fragmented IP", "filter": "ip.flags.mf == 1 || ip.frag_offset > 0",
+         "about": "IPv4 packets split into fragments: MTU problems, or traffic built to slip past inspection."}
+      ]
+    },
+    {
+      "name": "Application errors",
+      "templates": [
+        {"name": "Database errors", "filter": "mysql.error_code || pgsql.type == \"Error\" || tds.error",
+         "about": "Errors returned by MySQL/MariaDB, PostgreSQL and Microsoft SQL Server: failed queries, missing tables, denied logins."},
+        {"name": "HTTP errors", "filter": "http.response.code >= 400",
+         "about": "HTTP responses 400 and above: not found, forbidden, server errors."},
+        {"name": "DNS failures", "filter": "dns.flags.response == 1 && dns.flags.rcode != 0",
+         "about": "DNS answers that are errors: no such name, server failure, refused."},
+        {"name": "Slow DNS answers", "filter": "dns.time > 0.5",
+         "about": "DNS responses that took more than half a second."},
+        {"name": "Slow web responses", "filter": "http.time > 1",
+         "about": "HTTP responses that came more than a second after their request."},
+        {"name": "TLS alerts", "filter": "tls.alert_message.desc",
+         "about": "A TLS side giving up on the handshake (unknown certificate, no shared cipher...). TLS 1.3 encrypts its alerts after the hello, so only early ones show."},
+        {"name": "Login failures", "filter": "kerberos.error_code == 24 || ldap.resultCode == 49 || smb2.nt_status == 0xc000006d || ftp.response.code == 530 || http.response.code == 401 || mysql.error_code == 1045 || pgsql.code == \"28P01\"",
+         "about": "Wrong passwords across Kerberos, LDAP, SMB, FTP, HTTP, MySQL and PostgreSQL. Many in a row from one host is password guessing."},
+        {"name": "SMB errors", "filter": "smb2.nt_status >= 0xc0000000 && smb2.nt_status != 0xc0000016",
+         "about": "SMB2/3 replies with an error status (access denied, no such file...), leaving out the normal \"more processing required\" of a logon."},
+        {"name": "Malformed packets", "filter": "_ws.malformed",
+         "about": "Packets that break their protocol's rules: corruption, truncation, or crafted traffic."}
+      ]
+    },
+    {
+      "name": "Noise",
+      "templates": [
+        {"name": "Broadcast", "filter": "eth.dst == ff:ff:ff:ff:ff:ff",
+         "about": "Frames sent to every device on the segment."},
+        {"name": "Broadcast and multicast", "filter": "eth.dst.ig == 1",
+         "about": "Frames sent to a group of devices rather than one."},
+        {"name": "Discovery chatter", "filter": "arp || mdns || ssdp || llmnr || nbns || browser || lldp || cdp || stp",
+         "about": "Devices announcing and looking for each other: ARP, mDNS/Bonjour, SSDP/UPnP, LLMNR, NetBIOS, LLDP, CDP, spanning tree."},
+        {"name": "Hide the noise", "filter": "!(arp || mdns || ssdp || llmnr || nbns || browser || lldp || cdp || stp || eth.dst == ff:ff:ff:ff:ff:ff)",
+         "about": "Everything except broadcasts and discovery chatter."}
+      ]
+    },
+    {
+      "name": "Hunting",
+      "templates": [
+        {"name": "Logins and user names", "filter": "ftp.request.command in {\"USER\", \"PASS\"} || ntlmssp.auth.username || kerberos.CNameString || mysql.user || pgsql.parameter_name == \"user\"",
+         "about": "Where accounts appear: FTP logins (in clear text), NTLM and Kerberos user names, database logins."},
+        {"name": "Plain-text web requests", "filter": "http.request",
+         "about": "Unencrypted HTTP requests: what was fetched, from where, by which program."},
+        {"name": "Program downloads", "filter": "http.request.uri matches \"(?i)\\\\.(exe|dll|scr|msi|ps1|bat|vbs|hta|jar)$\" || http.content_type contains \"msdownload\"",
+         "about": "Requests for programs and scripts by name, and responses declared as Windows programs."},
+        {"name": "TLS server names", "filter": "tls.handshake.type == 1",
+         "about": "Every TLS Client Hello: which server name each encrypted connection asked for."},
+        {"name": "DNS queries", "filter": "dns.flags.response == 0",
+         "about": "Every name looked up."},
+        {"name": "Remote access", "filter": "ssh || telnet || tcp.port in {3389, 5900, 5901} || udp.port == 3389",
+         "about": "SSH, RDP, VNC and Telnet: remote shells and desktops."},
+        {"name": "Database traffic", "filter": "mysql || pgsql || tds",
+         "about": "MySQL/MariaDB, PostgreSQL and Microsoft SQL Server conversations."}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+# ANTA detector configuration. Copy to anta.toml, edit, and pass with:
+#   python -m anta --config anta.toml serve ...
+# Every key is optional; unknown keys are rejected so typos don't silently do nothing.
+# Section names are only for readability.
+
+[beacon]
+beacon_min_events = 8            # check-ins needed before judging regularity
+beacon_min_span_s = 60.0
+beacon_min_period_s = 1.0
+beacon_score_threshold = 0.80    # combined timing/size regularity (0-1); lower = more sensitive
+beacon_ignore_ports = [53, 67, 68, 123, 137, 138, 1900, 5353, 5355]
+
+[shared]
+# Periodic traffic from at least max(shared_min_hosts, shared_min_fraction * active hosts)
+# internal hosts to one destination is reported once, as low severity (software heartbeats).
+shared_min_hosts = 4
+shared_min_fraction = 0.25
+
+[dns]
+dns_min_queries = 12
+dns_min_entropy = 3.6            # bits/char of subdomain labels; normal hostnames sit around 2.5-3.2
+dns_min_len = 24.0
+dns_allowlist = ["in-addr.arpa", "ip6.arpa", "local", "home.arpa"]
+
+[exfil]
+exfil_min_bytes = 5000000
+exfil_min_asymmetry = 0.85
+exfil_max_hosts = 2              # only destinations this few internal hosts talk to
+
+[allow]
+# Suppresses every detector for these destinations. Prefer CIDRs: domain matching uses
+# TLS SNI / HTTP Host, which the client controls and malware can spoof (domain fronting).
+allowlist_cidrs = []             # e.g. ["10.20.0.0/16"] for an internal monitoring network
+allowlist_domains = []           # e.g. ["monitoring.corp.example"]
+
+[limits]
+max_flows_per_channel = 300
+max_alerts = 2000
+state_ttl_s = 7200.0

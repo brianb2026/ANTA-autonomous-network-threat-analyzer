@@ -1,0 +1,12 @@
+# Desktop application build: runtime deps + packaging + native window toolkit.
+# Install from the hash-pinned lock: `pip install --require-hashes -r requirements-app.lock`
+# (regenerate: uv pip compile requirements-app.txt --universal --generate-hashes --python-version 3.12 -o requirements-app.lock)
+-r requirements.txt
+pyinstaller>=6.10
+pywebview>=5.3
+pillow>=10
+cmake>=3.27
+# Linux native window: Qt WebEngine (macOS uses WebKit and Windows WebView2, both built in)
+QtPy>=2.4; sys_platform == "linux"
+PyQt6>=6.7; sys_platform == "linux"
+PyQt6-WebEngine>=6.7; sys_platform == "linux"

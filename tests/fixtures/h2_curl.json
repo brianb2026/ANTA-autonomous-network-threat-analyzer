@@ -1,0 +1,22 @@
+{
+ "/update.exe": {
+  "status": 200,
+  "sha256": "7a512acfee05bb553aa3dbd28af1605f0bcdf7d520be1cdf84a11d25a41aaef9",
+  "size": 60000
+ },
+ "/page.html": {
+  "status": 200,
+  "sha256": "362893a5d491a2f7c32dee09adf0c1df3ffb0806eb1a7f5ea751cdf0c033d13b",
+  "size": 1526
+ },
+ "/missing": {
+  "status": 404,
+  "sha256": "c3e12df4f172f4b69a77e8721f749ad593fa7091fb9d0ff11a821ce71e7503c4",
+  "size": 18
+ },
+ "/bytes": {
+  "status": 200,
+  "sha256": "6285332e3072b27e5b095c5c7d6e37eadd201220eb14694f9d2d0177c25a64ae",
+  "size": 40000
+ }
+}

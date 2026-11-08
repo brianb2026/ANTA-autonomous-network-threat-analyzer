@@ -1,0 +1,125 @@
+# Builds, tests and packages the ANTA desktop app on each OS's native runner.
+# Artifacts: macOS .dmg/.zip, Windows installer/.zip, Linux .tar.gz. Tagging vX.Y.Z publishes a release.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-14
+          - name: Linux x86_64
+            os: ubuntu-22.04
+          - name: Windows x64
+            os: windows-2022
+    env:
+      ANTA_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.2.0' }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Linux packages (libpcap, Qt WebEngine runtime libraries)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpcap-dev libegl1 libgl1 libxkbcommon0 \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libnss3 \
+            libxcomposite1 libxdamage1 libxrandr2 libxtst6 libasound2 libdbus-1-3 libfontconfig1
+
+      - name: Npcap SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.13.zip -OutFile npcap-sdk.zip
+          Expand-Archive npcap-sdk.zip -DestinationPath "$env:RUNNER_TEMP\npcap-sdk"
+          "NPCAP_SDK=$env:RUNNER_TEMP\npcap-sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Inno Setup (Windows installer)
+        if: runner.os == 'Windows'
+        run: choco install innosetup --no-progress -y
+
+      - name: Python dependencies (hash-pinned)
+        run: python -m pip install --require-hashes -r requirements-app.lock
+
+      - name: Build engine + app bundle
+        run: python packaging/build.py --version ${{ env.ANTA_VERSION }}
+
+      - name: Test data
+        run: |
+          python -m anta.tools.gen_traffic --out data --only tests
+          python -m anta.tools.gen_traffic --out data --only demo
+          python -m anta.tools.gen_traffic --out data --only val
+
+      - name: Test suite (macOS, Linux)
+        if: runner.os != 'Windows'
+        env:
+          ANTA_ENGINE: ${{ github.workspace }}/build/anta-engine
+        run: python -m pytest -q tests
+
+      - name: Engine smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The engine runs without Npcap for --version (wpcap.dll is delay-loaded); anything that
+          # touches packets needs the Npcap driver, which can't be installed unattended on CI.
+          .\build\anta-engine.exe --version
+          python -m pytest -q tests/test_server.py -k "not export"
+
+      - name: Packaged app smoke test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python packaging/smoke_test.py --skip-engine
+          else
+            python packaging/smoke_test.py
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ANTA-${{ env.ANTA_VERSION }}-${{ runner.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: app
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: cd artifacts && sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

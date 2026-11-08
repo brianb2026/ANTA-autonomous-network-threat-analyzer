@@ -1,0 +1,11 @@
+build/
+.venv/
+data/
+captures/
+__pycache__/
+*.pyc
+.pytest_cache/
+anta.toml
+models/*.tmp
+.claude/
+dist/

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ANTA
+GenericName=Network Threat Analyzer
+Comment=Find C2 beacons, DNS tunnels and data exfiltration in network traffic
+Exec=@INSTALL_DIR@/ANTA
+Icon=@INSTALL_DIR@/anta.png
+Terminal=false
+Categories=Network;Security;Monitor;
+Keywords=network;security;pcap;wireshark;threat;

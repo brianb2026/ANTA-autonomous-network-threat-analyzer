@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ANTA Threat Console</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="appbar">
+    <div class="menubar-row">
+      <span class="brand-name">ANTA</span>
+      <nav class="menubar" id="menubar" role="menubar" aria-label="Main menu"></nav>
+      <span class="spacer"></span>
+      <span class="brand-sub">Network Threat Analyzer</span>
+    </div>
+    <div class="toolbar" role="toolbar" aria-label="Main toolbar">
+      <div class="tb-group" role="group" aria-label="Capture">
+        <button class="tb" id="btn-open" type="button" title="Open a .pcap or .pcapng file (Ctrl+O)"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 4.5h4l1.5 1.5h7.5v7.5h-13z"/></svg><span>Open…</span></button>
+        <button class="tb" id="btn-live" type="button" title="Capture the traffic on a network interface as it happens"><svg class="ico ico-rec" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="4.5" fill="currentColor" stroke="none"/></svg><span>Live capture…</span></button>
+        <button class="tb tb-stop" id="btn-stop" type="button" hidden title="Stop the capture"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="4" width="8" height="8" fill="currentColor" stroke="none"/></svg><span>Stop</span></button>
+        <button class="tb" id="btn-save" type="button" hidden title="Save the packets of this capture to a .pcap file"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 2.5h9l2 2v9h-11z M5 2.5v4h6v-4 M5 13.5v-4h6v4"/></svg><span>Save…</span></button>
+      </div>
+      <span class="tb-sep" aria-hidden="true"></span>
+      <form class="cmd" id="cmd-form" role="search" aria-label="Command">
+        <svg class="ico cmd-ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4L14 14"/></svg>
+        <input id="cmd" type="text" spellcheck="false" autocomplete="off" maxlength="500" role="combobox"
+               aria-label="Type a display filter, a question, a packet number or an address" aria-autocomplete="list"
+               aria-controls="cmd-list" aria-expanded="false" aria-describedby="cmd-kind"
+               placeholder="Filter, question, packet number or address…   Ctrl+K">
+        <span class="cmd-kind" id="cmd-kind" aria-live="polite"></span>
+        <ul class="suggest cmd-list" id="cmd-list" role="listbox" aria-label="Suggestions" hidden></ul>
+      </form>
+      <span class="tb-sep" aria-hidden="true"></span>
+      <div class="tb-group" role="group" aria-label="Detection">
+        <label class="tb-label" for="det-switch"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2"/><path d="M8 0.5v3M8 12.5v3M0.5 8h3M12.5 8h3"/></svg><span>Detector</span></label>
+        <select id="det-switch" class="tb det-switch" title="What looks at every session besides the rule-based detectors: switch here"></select>
+      </div>
+      <span class="spacer"></span>
+    </div>
+    <nav class="views" role="tablist" aria-label="View">
+      <button role="tab" class="view-tab" id="tab-alerts" data-view="alerts" aria-selected="true" aria-controls="view-alerts">Alerts</button>
+      <button role="tab" class="view-tab" id="tab-packets" data-view="packets" aria-selected="false" aria-controls="view-packets" tabindex="-1">Packets</button>
+      <button role="tab" class="view-tab" id="tab-stats" data-view="stats" aria-selected="false" aria-controls="view-stats" tabindex="-1">Statistics</button>
+      <button role="tab" class="view-tab" id="tab-hosts" data-view="hosts" aria-selected="false" aria-controls="view-hosts" tabindex="-1">Hosts</button>
+      <button role="tab" class="view-tab" id="tab-files" data-view="files" aria-selected="false" aria-controls="view-files" tabindex="-1">Files</button>
+    </nav>
+    <div class="focus-bar" id="focus-bar" role="region" aria-label="Focus: the analysis is limited to a selection" hidden>
+      <span class="focus-mark" aria-hidden="true">◎</span>
+      <strong class="focus-word">Focus</strong>
+      <nav class="focus-crumbs" id="focus-crumbs" aria-label="Focus steps"></nav>
+      <span class="focus-note muted small">every view shows only these packets</span>
+      <span class="spacer"></span>
+      <button type="button" class="tb small" id="focus-tools" aria-haspopup="menu" title="Open an analysis tool on the focus, in a small window">Analysis tools ▾</button>
+      <button type="button" class="tb small" id="focus-explain" title="These packets in plain words (on this computer)">Explain…</button>
+      <button type="button" class="tb small" id="focus-ai" title="Ask the AI model set up under Detection… (you see what is sent first)">Explain with AI…</button>
+      <button type="button" class="tb small" id="focus-copy" title="Copy the focus as a display filter">Copy filter</button>
+      <button type="button" class="tb small" id="focus-back" title="Back one step (Esc)">‹ Back</button>
+      <button type="button" class="tb small tb-primary" id="focus-clear" title="Leave the focus: every view shows the whole capture again">✕ Whole capture</button>
+    </div>
+  </header>
+
+  <main class="console" id="view-alerts" role="tabpanel" aria-labelledby="tab-alerts">
+    <section class="alerts-pane" aria-labelledby="alerts-title">
+      <div class="pane-bar" data-help="alerts" data-popout="alerts">
+        <h2 id="alerts-title">Alerts <span class="count" id="alert-count"></span><span class="count" id="story-count" hidden></span></h2>
+        <div class="seg" id="alerts-mode" role="group" aria-label="Show the alerts as">
+          <button type="button" class="chip active" data-mode="list" aria-pressed="true" title="One row per finding">List</button>
+          <button type="button" class="chip" data-mode="story" aria-pressed="false" title="Each device's alerts linked into one story, in the order things happened">Story</button>
+        </div>
+        <div class="seg" id="sev-filter" role="group" aria-label="Filter by severity">
+          <button type="button" class="chip active" data-sev="all" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-sev="critical" aria-pressed="false">Critical</button>
+          <button type="button" class="chip" data-sev="high" aria-pressed="false">High</button>
+          <button type="button" class="chip" data-sev="medium" aria-pressed="false">Medium</button>
+          <button type="button" class="chip" data-sev="low" aria-pressed="false">Low</button>
+        </div>
+        <button type="button" class="chip chip-x" id="alerts-involving" hidden title="Show every alert again"></button>
+        <button type="button" class="chip" id="alerts-ignored" hidden title="Alert sources you chose to ignore: see or change them"></button>
+        <span class="spacer"></span>
+        <button type="button" class="tb" id="alerts-sweep" title="Paste indicators from a threat report (addresses, domains, URLs, hashes) and find them in the capture">Sweep indicators…</button>
+        <button type="button" class="tb" id="alerts-csv" title="Every alert in the table, as a spreadsheet">Export CSV</button>
+        <button type="button" class="tb" id="report-open" title="Malicious devices, victims, alerts and indicators in one report">Incident report</button>
+      </div>
+      <div class="alert-scroll">
+        <table class="alert-table" aria-labelledby="alerts-title">
+          <thead><tr id="alert-head">
+            <th class="c-sev" aria-sort="ascending"><button type="button" class="sort" data-key="severity">Severity</button></th>
+            <th class="c-time"><button type="button" class="sort" data-key="last_seen">Last seen</button></th>
+            <th class="c-type"><button type="button" class="sort" data-key="title">Type</button></th>
+            <th class="c-verdict"><button type="button" class="sort" data-key="verdict">Verdict</button></th>
+            <th class="c-src"><button type="button" class="sort" data-key="source">Source</button></th>
+            <th class="c-dst"><button type="button" class="sort" data-key="target">Target</button></th>
+            <th class="c-num"><button type="button" class="sort" data-key="confidence">Conf.</button></th>
+            <th class="c-num"><button type="button" class="sort" data-key="updates">Upd.</button></th>
+            <th class="c-id"><button type="button" class="sort" data-key="id">ID</button></th>
+          </tr></thead>
+          <tbody id="feed"></tbody>
+        </table>
+        <p class="empty" id="feed-empty">No alerts. <span id="feed-empty-sub">Open a capture, start a live capture, or run the demo.</span></p>
+      </div>
+      <div class="story-wrap" id="story-wrap" hidden>
+        <p class="muted small story-intro">Each device's alerts linked into one story, in the order things happened and the stage of an attack they belong to: scouting the network, getting in the middle of other devices' traffic, malware delivered, calling home, spreading inside, data leaving. The worst stories come first. Click a step to open its alert.</p>
+        <div class="story-list" id="story-list"></div>
+      </div>
+    </section>
+
+    <section class="detail-pane">
+      <div class="pane-col detail-col">
+        <div class="pane-head" data-help="detail" data-popout="alert"><h2>Alert detail</h2></div>
+      <div class="main" id="main" aria-live="polite">
+        <div class="placeholder" id="placeholder">
+          <div id="ph-select">
+            <section class="first-look" id="first-look" aria-labelledby="first-look-title">
+              <h2 id="first-look-title">What to look at first</h2>
+              <ol class="first-list" id="first-list"></ol>
+            </section>
+            <p class="muted small">Or select an alert in the table for its explanation, evidence and stream.</p>
+          </div>
+          <div id="ph-start" hidden>
+            <h2>No capture loaded</h2>
+            <p>ANTA finds command-and-control beacons, DNS tunnels, poisoned DNS, data exfiltration and malicious files from how traffic behaves.</p>
+            <div class="start-actions">
+              <button class="big" id="start-open" type="button"><strong>Open a capture file</strong><span>.pcap or .pcapng from Wireshark, tcpdump, Zeek</span></button>
+              <button class="big" id="start-live" type="button"><strong>Capture live traffic</strong><span>Watch a network interface in real time</span></button>
+              <button class="big" id="start-demo" type="button"><strong>Run the demo</strong><span>10 minutes of office traffic with 5 planted attacks</span></button>
+            </div>
+          </div>
+        </div>
+        <article id="detail" hidden>
+          <div class="detail-head">
+            <span class="badge" id="d-badge"></span>
+            <span class="d-id" id="d-id"></span>
+            <span class="d-time" id="d-time"></span>
+          </div>
+          <h1 id="d-title"></h1>
+          <p class="headline" id="d-headline"></p>
+          <div class="confidence">
+            <span>Confidence</span>
+            <div class="meter"><div class="meter-fill" id="d-conf-bar"></div></div>
+            <strong id="d-conf"></strong>
+          </div>
+          <div class="triage">
+            <span class="triage-label" id="triage-label">Verdict</span>
+            <div class="seg" id="triage-status" role="group" aria-labelledby="triage-label">
+              <button type="button" class="chip" data-status="new" aria-pressed="false">New</button>
+              <button type="button" class="chip" data-status="investigating" aria-pressed="false">Investigating</button>
+              <button type="button" class="chip" data-status="confirmed" aria-pressed="false">Confirmed</button>
+              <button type="button" class="chip" data-status="false_positive" aria-pressed="false">False positive</button>
+            </div>
+            <span class="muted small" id="triage-saved" role="status"></span>
+          </div>
+          <textarea id="triage-note" class="triage-note" rows="2" maxlength="4000" aria-label="Analyst notes"
+                    placeholder="Analyst notes: what you checked, what you found, what happens next (saved with the alert and put in the report)"></textarea>
+          <ul class="evidence" id="d-details"></ul>
+
+          <div class="card" id="d-agent" hidden>
+            <div class="card-head">
+              <h3>Detection agent</h3>
+              <button class="link" type="button" id="d-agent-ask">Ask the agent about this alert</button>
+            </div>
+            <div id="d-agent-body"></div>
+            <p class="muted small" id="d-agent-note" role="status"></p>
+          </div>
+
+          <div class="card" id="d-file" hidden>
+            <div class="card-head">
+              <h3>File</h3>
+              <span class="muted" id="d-file-sub"></span>
+            </div>
+            <dl class="kv context-kv" id="d-file-kv"></dl>
+          </div>
+
+          <div class="card" id="d-device" hidden>
+            <div class="card-head">
+              <h3 id="d-device-title">Device</h3>
+              <span class="muted" id="d-device-sub"></span>
+            </div>
+            <dl class="kv context-kv" id="d-device-kv"></dl>
+            <p class="muted small" id="d-device-note"></p>
+          </div>
+
+          <div class="card" id="d-host" hidden>
+            <div class="card-head">
+              <h3 id="d-host-title">Affected host</h3>
+              <button class="link" type="button" id="d-host-map">Host details</button>
+            </div>
+            <dl class="kv context-kv" id="d-host-kv"></dl>
+            <p class="muted small" id="d-host-note"></p>
+          </div>
+
+          <div class="card" id="d-geo" hidden>
+            <div class="card-head"><h3>Where the other end is</h3><span class="muted small">from the offline GeoIP table</span></div>
+            <dl class="kv context-kv" id="d-geo-kv"></dl>
+            <p class="muted small">The country is where the network's owner is registered; cloud and CDN servers can stand elsewhere.</p>
+          </div>
+
+          <div class="card" id="chart-card">
+            <div class="card-head" data-popout="alert" data-card="chart">
+              <h3 id="chart-title">Statistical trigger</h3>
+              <button class="link" id="chart-table-toggle" aria-pressed="false">View as table</button>
+            </div>
+            <div class="legend" id="chart-legend"></div>
+            <div class="chart" id="chart"></div>
+            <div class="table-wrap" id="chart-table" hidden></div>
+          </div>
+
+          <div class="card" id="timeline-card">
+            <div class="card-head" data-popout="alert" data-card="timeline">
+              <h3>Session timeline</h3>
+              <span class="muted" id="timeline-sub"></span>
+            </div>
+            <div class="legend">
+              <span class="key"><span class="swatch s-out"></span>Client → server</span>
+              <span class="key"><span class="swatch s-in"></span>Server → client</span>
+            </div>
+            <div class="chart" id="timeline"></div>
+          </div>
+        </article>
+      </div>
+
+      </div>
+
+      <aside class="pane-col stream-col" aria-labelledby="stream-title">
+        <div class="pane-head" data-help="stream"><h2 id="stream-title">Stream</h2></div>
+        <div class="stream">
+        <div id="stream-empty" class="muted">No alert selected.</div>
+        <div id="stream" hidden>
+          <dl class="kv" id="stream-kv"></dl>
+          <div class="section" id="dns-section">
+            <h4>DNS resolution context</h4>
+            <ul class="mono-list" id="dns-list"></ul>
+          </div>
+          <div class="section" id="tls-section">
+            <h4>TLS fingerprint</h4>
+            <dl class="kv" id="tls-kv"></dl>
+          </div>
+          <div class="section" id="tcp-section">
+            <h4>TCP state</h4>
+            <dl class="kv" id="tcp-kv"></dl>
+          </div>
+          <div class="stream-actions">
+            <button class="tb" id="explain-alert" type="button" title="What happened on this alert's connections, in plain words">Explain…</button>
+            <button class="tb" id="show-packets" type="button">Show packets</button>
+            <a class="tb tb-primary" id="export" href="#" download>Download context (.pcap)</a>
+          </div>
+          <p class="muted small" id="export-note"></p>
+        </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <main class="pkt-view" id="view-packets" role="tabpanel" aria-labelledby="tab-packets" hidden>
+    <div class="pkt-bar">
+      <form class="pkt-filter-form" id="pkt-filter-form" role="search">
+        <select id="pkt-filter-kind" class="tb filter-kind" aria-label="Filter language">
+          <option value="display">Display filter</option>
+          <option value="bpf">Capture filter (BPF)</option>
+        </select>
+        <div class="filter-wrap">
+          <input id="pkt-filter" class="pkt-filter" type="text" spellcheck="false" autocomplete="off" maxlength="4096"
+                 aria-label="Display filter" aria-describedby="pkt-filter-msg" aria-autocomplete="list"
+                 aria-controls="pkt-suggest" data-valid=""
+                 placeholder="Apply a display filter … e.g. ip.addr == 10.0.0.5 &amp;&amp; tcp.port == 443">
+          <ul class="suggest" id="pkt-suggest" role="listbox" aria-label="Filter suggestions" hidden></ul>
+        </div>
+        <button class="tb" type="button" id="pkt-recent" aria-haspopup="menu" aria-label="Recent and saved filters" title="Recent and saved filters">▾</button>
+        <button class="tb" type="submit">Apply</button>
+        <button class="tb" type="button" id="pkt-clear">Clear</button>
+        <button class="tb" type="button" id="pkt-options" aria-haspopup="menu" title="Filter templates, time display, colors, find, save, decrypt TLS…"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg><span>Tools ▾</span></button>
+      </form>
+      <span class="scope" id="pkt-scope" hidden><span id="pkt-scope-text"></span>
+        <button type="button" class="scope-x" id="pkt-scope-clear" aria-label="Show all packets">✕</button></span>
+      <label class="check" id="pkt-follow-wrap" hidden><input type="checkbox" id="pkt-follow"> Follow live</label>
+      <span class="keylog-on" id="pkt-keylog-on" hidden><span id="pkt-keylog-text"></span>
+        <button class="tb small" type="button" id="pkt-keylog-clear">Clear keys</button></span>
+      <span class="marks" id="pkt-marks" hidden><span id="pkt-marks-text"></span>
+        <button class="tb small" type="button" id="pkt-marks-clear">Clear marks</button></span>
+      <span class="tmp-colors" id="pkt-tmp-colors" hidden><span id="pkt-tmp-colors-text"></span>
+        <button class="tb small" type="button" id="pkt-tmp-colors-clear">Reset colorized conversations</button></span>
+      <span class="pkt-count" id="pkt-count" role="status"></span>
+      <div class="pager">
+        <button class="tb" type="button" id="pkt-first" aria-label="First page">⏮</button>
+        <button class="tb" type="button" id="pkt-prev">◀ Prev</button>
+        <button class="tb" type="button" id="pkt-next">Next ▶</button>
+      </div>
+    </div>
+    <p class="filter-msg" id="pkt-filter-msg" role="status"></p>
+    <div class="pkt-tools" id="pkt-tools" hidden>
+      <label class="check"><input type="checkbox" id="pkt-colorize" checked> Colorize</label>
+      <button class="tb small" type="button" id="pkt-color-rules">Coloring rules…</button>
+      <label class="inline">Time
+        <select id="pkt-time-format" class="tb small">
+          <option value="relative">Seconds since capture start</option>
+          <option value="delta">Seconds since previous displayed packet</option>
+          <option value="local">Time of day</option>
+          <option value="datetime">Date and time of day</option>
+          <option value="utc">UTC date and time</option>
+          <option value="epoch">Seconds since 1970 (epoch)</option>
+        </select></label>
+      <button class="tb small" type="button" id="pkt-time-shift" title="Shift every packet's time, or set one packet's time (display only)">Time shift…</button>
+      <label class="check" title="Show the names the capture gives addresses (DNS answers, and names hosts announce) instead of the addresses"><input type="checkbox" id="pkt-names"> Host names</label>
+      <button class="tb small" type="button" id="pkt-find-open" title="Find a packet by text, a display filter, hex bytes or a regular expression (Ctrl+F)">Find…</button>
+      <button class="tb small" type="button" id="pkt-goto" title="Go to packet (Ctrl+G)">Go to packet…</button>
+      <button class="tb small" type="button" id="pkt-save" title="Save all, displayed or marked packets to a .pcap file">Save packets…</button>
+      <button class="tb small" type="button" id="pkt-keylog" title="Load a TLS key log (SSLKEYLOGFILE) to decrypt your own TLS, as in Wireshark">Decrypt TLS…</button>
+      <input type="file" id="pkt-keylog-file" accept=".txt,.keys,.log,.nss,text/plain" hidden>
+    </div>
+    <form class="pkt-find" id="pkt-find" hidden role="search" aria-label="Find a packet">
+      <label class="inline">Find
+        <select id="find-mode" class="tb small">
+          <option value="text">Text</option>
+          <option value="filter">Display filter</option>
+          <option value="hex">Hex bytes</option>
+          <option value="regex">Regular expression</option>
+        </select></label>
+      <label class="inline" id="find-where-label">in
+        <select id="find-where" class="tb small">
+          <option value="list">Packet list</option>
+          <option value="details">Packet details</option>
+          <option value="bytes">Packet bytes</option>
+        </select></label>
+      <input id="find-text" type="search" spellcheck="false" autocomplete="off" aria-label="What to find">
+      <button type="submit" class="tb small tb-primary" id="find-next">Find next</button>
+      <button type="button" class="tb small" id="find-prev">Find previous</button>
+      <span class="muted small" id="find-msg" role="status"></span>
+      <span class="spacer"></span>
+      <button type="button" class="tb small" id="find-close" aria-label="Close the find bar" title="Close (Esc)">✕</button>
+    </form>
+    <div class="pkt-split">
+      <div class="pane-col">
+        <div class="pane-head" data-help="packets" data-popout="packets"><h2>Packet list</h2>
+          <div class="sel-bar" id="sel-bar" role="region" aria-label="Selected packets" hidden>
+            <span class="sel-text" id="sel-bar-text" role="status"
+                  title="Shift-click or drag for a range · Ctrl/⌘-click to add or remove · double-click an address for all its packets · Ctrl/⌘+A for all · right-click for more · Esc to clear"></span>
+            <button type="button" class="sel-btn primary" id="sel-focus" data-needs-scope title="Limit every view to these packets (F)">Focus on these</button>
+            <button type="button" class="sel-btn" id="sel-tools" data-needs-scope aria-haspopup="menu" title="Open an analysis tool on the selection, in a small window">Analysis tools ▾</button>
+            <button type="button" class="sel-btn" id="sel-explain" data-needs-scope title="The selected packets in plain words (on this computer)">Explain…</button>
+            <button type="button" class="sel-btn" id="sel-ai" data-needs-scope title="Ask the AI model set up under Detection… (you see what is sent first)">Explain with AI…</button>
+            <button type="button" class="sel-btn sel-x" id="sel-clear" aria-label="Clear the selection" title="Clear the selection (Esc)">✕</button>
+          </div></div>
+      <div class="pkt-list" id="pkt-list" tabindex="0">
+        <table class="pkt-table" aria-label="Packets">
+          <thead><tr><th class="c-no">No.</th><th class="c-time">Time</th><th class="c-addr">Source</th>
+            <th class="c-addr">Destination</th><th class="c-proto">Protocol</th><th class="c-len">Length</th><th>Info</th></tr></thead>
+          <tbody id="pkt-rows"></tbody>
+        </table>
+        <p class="empty" id="pkt-empty">No capture loaded.<br><span>Open a capture file or start a live capture to see packets.</span></p>
+      </div>
+      </div>
+      <div class="pkt-detail">
+        <div class="pane-col">
+          <div class="pane-head" data-help="tree"><h2>Packet details</h2></div>
+          <div class="pkt-tree" id="pkt-tree" aria-label="Packet layers"><p class="muted">Select a packet to see its layers.</p></div>
+        </div>
+        <div class="pane-col">
+          <div class="pane-head" data-help="bytes"><h2>Packet bytes</h2></div>
+          <div class="pkt-hex" id="pkt-hex" aria-label="Packet bytes"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <main class="stats-view" id="view-stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+    <nav class="stats-nav" aria-label="Statistics">
+      <button type="button" data-tool="properties" aria-current="page">Capture properties</button>
+      <button type="button" data-tool="hierarchy">Protocol hierarchy</button>
+      <button type="button" data-tool="conversations">Conversations</button>
+      <button type="button" data-tool="endpoints">Endpoints</button>
+      <button type="button" data-tool="apps">Applications</button>
+      <button type="button" data-tool="io">I/O graph</button>
+      <button type="button" data-tool="flow">Flow graph</button>
+      <button type="button" data-tool="tcpgraph">TCP stream graphs</button>
+      <button type="button" data-tool="rhythm">Rhythm</button>
+      <button type="button" data-tool="lengths">Packet lengths</button>
+      <button type="button" data-tool="expert">Expert information</button>
+      <button type="button" data-tool="lint">Protocol spell-check</button>
+      <button type="button" data-tool="dns">DNS</button>
+      <button type="button" data-tool="http">HTTP</button>
+      <button type="button" data-tool="tls">TLS</button>
+      <button type="button" data-tool="fingerprints">TLS fingerprints</button>
+      <button type="button" data-tool="logins">Cleartext logins</button>
+      <button type="button" data-tool="encrypted">Encrypted traffic</button>
+      <button type="button" data-tool="geo">Countries &amp; networks</button>
+      <button type="button" data-tool="physics">Speed of light</button>
+    </nav>
+    <section class="stats-main" aria-labelledby="stats-heading">
+      <div class="pane-head" data-help="stats" data-popout="stats"><h2 id="stats-heading">Statistics: <span id="stats-title">Capture properties</span></h2></div>
+      <form class="stats-bar" id="stats-form">
+        <label class="inline grow">Limit to display filter
+          <input type="text" id="stats-filter" class="pkt-filter" spellcheck="false" autocomplete="off" maxlength="4096"
+                 placeholder="(all packets)" aria-describedby="stats-msg"></label>
+        <button class="tb" type="button" id="stats-use-packets" title="Use the Packets tab's display filter">Use packet filter</button>
+        <button class="tb tb-primary" type="submit">Refresh</button>
+        <span class="muted small" id="stats-status" role="status"></span>
+      </form>
+      <p class="filter-msg" id="stats-msg" role="alert"></p>
+      <div class="stats-body" id="stats-body">
+        <p class="empty">Open a capture to see its statistics.</p>
+      </div>
+    </section>
+  </main>
+
+  <main class="hosts-view" id="view-hosts" role="tabpanel" aria-labelledby="tab-hosts" hidden>
+  <div class="tool-view" id="hosts-table">
+    <div class="pane-bar" data-help="assets" data-popout="assets">
+      <div class="seg hosts-mode" role="group" aria-label="Show the hosts as">
+        <button type="button" class="chip" data-hosts="table" aria-pressed="false" title="Every device, with what it probably is">Table</button>
+        <button type="button" class="chip" data-hosts="map" aria-pressed="false" title="Who talks to whom">Map</button>
+      </div>
+      <h2 id="assets-title">Hosts <span class="count" id="assets-count"></span></h2>
+      <div class="seg" id="assets-scope" role="group" aria-label="Which devices">
+        <button type="button" class="chip active" data-scope="local" aria-pressed="true">This network</button>
+        <button type="button" class="chip" data-scope="iot" aria-pressed="false">IoT</button>
+        <button type="button" class="chip" data-scope="public" aria-pressed="false">Internet</button>
+        <button type="button" class="chip" data-scope="all" aria-pressed="false">All</button>
+      </div>
+      <input type="search" id="assets-search" class="pkt-filter tool-search" placeholder="Find an address, name, OS or service" aria-label="Find a device">
+      <span class="spacer"></span>
+      <span class="muted small" id="assets-status" role="status"></span>
+      <button type="button" class="tb" id="assets-csv">Export inventory (CSV)</button>
+      <button type="button" class="tb" id="assets-refresh">Refresh</button>
+    </div>
+    <div class="assets-split">
+      <div class="tool-scroll">
+        <table class="data-table assets-table" aria-labelledby="assets-title">
+          <thead><tr><th>Address</th><th>Name</th><th>Device</th><th>Operating system</th><th>Vendor</th><th>Services</th>
+            <th>Applications</th><th>Network owner</th><th class="num">Traffic</th><th class="num">Alerts</th></tr></thead>
+          <tbody id="assets-rows"></tbody>
+        </table>
+        <p class="empty" id="assets-empty">Open a capture to list the devices in it.</p>
+      </div>
+      <div class="pane-col side-col">
+        <div class="pane-head" data-help="device"><h2>Device details</h2></div>
+      <aside class="map-side assets-side" id="assets-side" aria-label="Device details">
+        <p class="muted">Select a device to see how it was identified.</p>
+      </aside>
+      </div>
+    </div>
+    <p class="tool-note">Found passively, from the traffic alone: nothing is sent to any device. Operating systems come from TCP SYN fingerprints and initial TTLs, DHCP option lists and vendor classes, browser user agents and Windows announcements; IoT devices from their vendors, mDNS services and host names. Each guess lists its evidence.</p>
+  </div>
+  <div class="map-view" id="hosts-map" hidden>
+    <div class="map-bar">
+      <div class="seg hosts-mode" role="group" aria-label="Show the hosts as">
+        <button type="button" class="chip" data-hosts="table" aria-pressed="false" title="Every device, with what it probably is">Table</button>
+        <button type="button" class="chip" data-hosts="map" aria-pressed="false" title="Who talks to whom">Map</button>
+      </div>
+      <label class="inline">Layout
+        <select id="map-layout" class="tb small">
+          <option value="grouped">Grouped: devices · gateways · internet</option>
+          <option value="force">Force-directed</option>
+        </select></label>
+      <label class="inline">Show top
+        <input type="range" id="map-limit" min="10" max="400" step="10" value="80" aria-describedby="map-limit-text">
+        <span id="map-limit-text" class="muted small"></span></label>
+      <label class="check"><input type="checkbox" id="map-groups"> Multicast / broadcast</label>
+      <label class="check"><input type="checkbox" id="map-labels" checked> Labels</label>
+      <input type="search" id="map-search" class="pkt-filter map-search" placeholder="Find address or name" aria-label="Find a host">
+      <button class="tb small" type="button" id="map-fit">Fit</button>
+      <button class="tb small" type="button" id="map-refresh">Refresh</button>
+      <span class="muted small" id="map-status" role="status"></span>
+    </div>
+    <div class="map-split">
+      <div class="pane-col">
+        <div class="pane-head" data-help="map" data-popout="map"><h2>Network map</h2></div>
+      <div class="map-canvas" id="map-canvas" tabindex="0" aria-label="Network map. Hosts are nodes; lines are conversations.">
+        <svg id="map-svg" role="img" aria-labelledby="map-svg-title"><title id="map-svg-title">Network map</title></svg>
+        <div class="map-legend" id="map-legend" aria-label="Legend"></div>
+        <p class="empty" id="map-empty">Open a capture to map the hosts in it.</p>
+      </div>
+      </div>
+      <div class="pane-col side-col">
+        <div class="pane-head" data-help="host"><h2>Host details</h2></div>
+      <aside class="map-side" id="map-side" aria-label="Host details">
+        <p class="muted">Select a host to see what it is and why.</p>
+      </aside>
+      </div>
+    </div>
+  </div>
+  </main>
+
+
+  <main class="tool-view" id="view-files" role="tabpanel" aria-labelledby="tab-files" hidden>
+    <div class="pane-bar" data-help="files" data-popout="files">
+      <h2 id="files-title">Files <span class="count" id="files-count"></span></h2>
+      <div class="seg" id="files-proto" role="group" aria-label="Protocol">
+        <button type="button" class="chip active" data-proto="all" aria-pressed="true">All</button>
+        <button type="button" class="chip" data-proto="HTTP" aria-pressed="false">HTTP</button>
+        <button type="button" class="chip" data-proto="HTTPS" aria-pressed="false" title="Downloads inside HTTPS, readable once you load your TLS key log">HTTPS</button>
+        <button type="button" class="chip" data-proto="SMB" aria-pressed="false">SMB</button>
+        <button type="button" class="chip" data-proto="FTP" aria-pressed="false">FTP</button>
+      </div>
+      <label class="check"><input type="checkbox" id="files-programs"> Programs and scripts only</label>
+      <input type="search" id="files-search" class="pkt-filter tool-search" placeholder="Find a name, host or hash" aria-label="Find a file">
+      <span class="spacer"></span>
+      <span class="muted small" id="files-status" role="status"></span>
+      <button type="button" class="tb" id="files-csv">Export list (CSV)</button>
+      <button type="button" class="tb" id="files-refresh">Refresh</button>
+    </div>
+    <div class="tool-scroll">
+      <table class="data-table files-table" aria-labelledby="files-title">
+        <thead><tr><th class="c-time">Time</th><th class="c-proto">Proto</th><th class="c-dir">Direction</th><th>Name</th>
+          <th>Type</th><th class="num">Size</th><th>Client</th><th>Server</th><th>SHA-256</th><th>Status</th><th class="c-act"><span class="visually-hidden">Save</span></th></tr></thead>
+        <tbody id="files-rows"></tbody>
+      </table>
+      <p class="empty" id="files-empty">Open a capture to list the files it carries.</p>
+    </div>
+    <p class="tool-note">Like Wireshark's File → Export Objects: files sent over HTTP (after removing chunked and gzip encoding), copied over SMB2 and transferred over FTP, written byte for byte and checked against their SHA-256. A saved program is never run by ANTA; handle it as live malware.</p>
+  </main>
+
+
+
+  <footer class="statusbar">
+    <span class="session" id="session" data-state="idle" role="status"><span class="dot"></span><span id="session-text">No capture loaded</span></span>
+    <dl class="kpis" id="kpis">
+      <div><dt>Sessions</dt><dd id="kpi-sessions">0</dd></div>
+      <div><dt>Packets</dt><dd id="kpi-packets">0</dd></div>
+      <div><dt>Kernel drops</dt><dd id="kpi-drops">0</dd></div>
+      <div><dt>Alerts</dt><dd id="kpi-alerts">0</dd></div>
+      <div><dt>Model</dt><dd id="kpi-model">–</dd></div>
+    </dl>
+    <button type="button" class="case-chip" id="policy-chip" title="Network rules: how the open capture does against your tests and firewall rules">Rules</button>
+    <button type="button" class="case-chip" id="case-chip" title="The investigation: your notes and pinned answers">Investigation</button>
+    <span class="status-msg" id="status-msg" role="status"></span>
+    <span class="spacer"></span>
+    <div class="conn" id="conn" data-state="connecting"><span class="dot"></span><span id="conn-text">Connecting…</span></div>
+  </footer>
+
+  <aside class="host-panel" id="host-panel" aria-labelledby="host-panel-title" hidden></aside>
+
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+  <div class="ctx" id="ctx-menu" role="menu" hidden></div>
+
+  <dialog id="live-dialog" aria-labelledby="live-title">
+    <form method="dialog" id="live-form">
+      <h2 id="live-title">Live capture</h2>
+      <label for="live-iface">Interface</label>
+      <select id="live-iface" required></select>
+      <label for="live-filter">Capture filter <span class="muted">(optional, BPF syntax)</span></label>
+      <input id="live-filter" type="text" maxlength="1024" spellcheck="false" autocomplete="off" placeholder="e.g. not port 22 and net 10.0.0.0/8">
+      <label class="check"><input id="live-record" type="checkbox" checked> Record packets so alerts can be exported as .pcap</label>
+      <p class="muted small" id="live-note"></p>
+      <p class="error" id="live-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="live-cancel">Cancel</button>
+        <button type="submit" class="tb tb-primary" id="live-start">Start capture</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="open-dialog" aria-labelledby="open-title">
+    <form method="dialog" id="open-form">
+      <h2 id="open-title">Open capture file</h2>
+      <label for="open-path">Full path to a .pcap or .pcapng file</label>
+      <input id="open-path" type="text" spellcheck="false" autocomplete="off" placeholder="/Users/me/Downloads/traffic.pcapng" required>
+      <p class="error" id="open-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="open-cancel">Cancel</button>
+        <button type="submit" class="tb tb-primary">Analyse</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="color-dialog" class="wide" aria-labelledby="color-title">
+    <form method="dialog" id="color-form">
+      <h2 id="color-title">Coloring rules</h2>
+      <p class="muted small">The first enabled rule a packet matches colors its row, as in Wireshark. Filters use display-filter syntax.</p>
+      <div class="rules-wrap"><table class="rules">
+        <thead><tr><th>On</th><th>Name</th><th>Filter</th><th>Background</th><th>Text</th><th>Preview</th><th><span class="visually-hidden">Order</span></th></tr></thead>
+        <tbody id="color-rows"></tbody>
+      </table></div>
+      <p class="error" id="color-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="color-add">Add rule</button>
+        <button type="button" class="tb" id="color-defaults">Restore Wireshark defaults</button>
+        <span class="spacer"></span>
+        <button type="button" class="tb" id="color-cancel">Cancel</button>
+        <button type="submit" class="tb tb-primary" id="color-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="ask-dialog" class="wide" aria-labelledby="ask-title">
+    <form id="ask-form">
+      <h2 id="ask-title">Ask the capture</h2>
+      <div class="ask-row">
+        <input type="text" id="ask-q" class="pkt-filter" list="ask-history" maxlength="500" spellcheck="false" autocomplete="off"
+               placeholder="e.g. who did 10.0.0.5 talk to the most? · what is 10.0.0.5? · DNS from 10.0.0.5 in the first 5 minutes" aria-describedby="ask-note">
+        <datalist id="ask-history"></datalist>
+        <button type="submit" class="tb tb-primary">Ask</button>
+      </div>
+      <p class="muted small" id="ask-note">Read here, on this computer: the question is answered from the capture, with the display filter and the view behind the answer. Nothing is applied until you choose.</p>
+      <div id="ask-result" class="ask-result" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="ask-close">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goto-dialog" aria-labelledby="goto-title">
+    <form method="dialog" id="goto-form">
+      <h2 id="goto-title">Go to packet</h2>
+      <label for="goto-n">Packet number</label>
+      <input id="goto-n" type="text" inputmode="numeric" pattern="[0-9]+" required autocomplete="off">
+      <p class="error" id="goto-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="goto-cancel">Cancel</button>
+        <button type="submit" class="tb tb-primary">Go</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="save-dialog" aria-labelledby="save-title">
+    <form method="dialog" id="save-form">
+      <h2 id="save-title">Save packets</h2>
+      <fieldset class="choices">
+        <legend class="visually-hidden">Which packets</legend>
+        <label class="check" id="save-selected-row" hidden><input type="radio" name="save-scope" value="selected"> <span>The selected packets <span class="muted" id="save-selected-note"></span></span></label>
+        <label class="check"><input type="radio" name="save-scope" value="all" checked> <span><span id="save-all-label">All packets</span> <span class="muted" id="save-all-note"></span></span></label>
+        <label class="check"><input type="radio" name="save-scope" value="displayed" id="save-displayed"> <span>Only the displayed packets <span class="muted mono" id="save-displayed-note"></span></span></label>
+        <label class="check"><input type="radio" name="save-scope" value="marked" id="save-marked"> <span>Only the marked packets <span class="muted" id="save-marked-note"></span></span></label>
+      </fieldset>
+      <fieldset class="choices save-safe">
+        <legend class="visually-hidden">Sharing</legend>
+        <label class="check"><input type="checkbox" id="save-safe" aria-describedby="save-safe-what"> <span>Share-safe copy
+          <span class="muted" id="save-safe-what">— to hand to someone else: every address replaced by a stand-in (the same device is the same stand-in throughout, subnets kept), what the packets carried cut away</span></span></label>
+        <div class="save-safe-opts" id="save-safe-opts" hidden>
+          <label class="check"><input type="checkbox" id="save-safe-keep"> <span>Keep what the packets carried <span class="muted">(only the addresses change: names, passwords and addresses inside the data stay readable)</span></span></label>
+          <label class="check"><input type="checkbox" id="save-safe-time"> <span>Hide the date <span class="muted">(the copy starts at 1 January 2000; the timing between packets is kept)</span></span></label>
+        </div>
+      </fieldset>
+      <p class="muted small" id="save-note">Saved in pcap format, which Wireshark, tcpdump, Zeek and Suricata read.</p>
+      <div class="save-safe-done" id="save-safe-done" hidden>
+        <p id="save-safe-summary"></p>
+        <p class="muted small">The address key lists which stand-in is which real device. Keep it to yourself: with it, the copy can be read back.</p>
+        <button type="button" class="tb" id="save-safe-key">Save the address key…</button>
+      </div>
+      <p class="error" id="save-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="save-cancel">Cancel</button>
+        <button type="submit" class="tb tb-primary" id="save-go">Save…</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="wide" aria-labelledby="settings-title">
+    <form method="dialog" id="settings-form">
+      <h2 id="settings-title">Settings</h2>
+      <div class="settings-grid">
+        <fieldset class="choices">
+          <legend>Flow logs</legend>
+          <p class="muted small">One line per connection (Zeek conn.log fields: who, to whom, which application, how much, how it ended), one file per day, readable only by you.</p>
+          <label class="check"><input type="checkbox" id="set-flowlog-live"> Keep a flow log of live captures</label>
+          <label class="check"><input type="checkbox" id="set-flowlog-files"> Also of capture files I open</label>
+          <label for="set-flowlog-days">Keep for (days)</label>
+          <input id="set-flowlog-days" type="number" min="1" max="3650" step="1">
+          <label for="set-flowlog-mb">At most (MB in all)</label>
+          <input id="set-flowlog-mb" type="number" min="10" max="1000000" step="1">
+          <button type="button" class="tb" id="set-flowlog-save" title="One JSON line per connection of the capture that is open now">Save this capture's flow log…</button>
+          <p class="muted small mono" id="set-flowlog-dir"></p>
+          <div class="settings-files" id="set-flowlog-files-list"></div>
+        </fieldset>
+        <fieldset class="choices">
+          <legend>Rolling capture buffer</legend>
+          <p class="muted small">A recorded live capture is written in segments; when a segment is full a new one starts and the oldest beyond the limit is deleted, so the newest traffic is always on disk. Applies to the next live capture.</p>
+          <label for="set-ring-mb">Segment size (MB)</label>
+          <input id="set-ring-mb" type="number" min="16" max="65536" step="1">
+          <label for="set-ring-n">Older segments kept</label>
+          <input id="set-ring-n" type="number" min="1" max="1000" step="1">
+          <p class="muted small" id="set-ring-total"></p>
+          <h3 class="settings-sub">Recordings</h3>
+          <div class="settings-files" id="set-recordings"></div>
+        </fieldset>
+        <fieldset class="choices settings-intel">
+          <legend>Threat intelligence feeds <span class="muted small" id="intel-count"></span></legend>
+          <p class="muted small">Published lists of malicious addresses, domains, URLs, file hashes and TLS fingerprints, kept on this computer. A feed is downloaded only when you press Update; every session is then checked against the enabled feeds as it is analysed, and a match raises a critical alert.</p>
+          <div id="intel-rows" class="intel-list"></div>
+          <div class="hunt-actions">
+            <button type="button" class="tb" id="intel-update-all">Update all</button>
+            <button type="button" class="tb" id="intel-import" title="A text or CSV file of indicators, one per line">Import a list…</button>
+            <button type="button" class="tb tb-primary" id="intel-recheck" title="Match every session of this capture against the feeds as they are now">Check this capture</button>
+          </div>
+          <input type="file" id="intel-file" accept=".txt,.csv,.json,.ioc,text/plain,text/csv" hidden>
+          <p class="error" id="intel-error" role="alert"></p>
+        </fieldset>
+        <fieldset class="choices">
+          <legend>GeoIP (country and network owner)</legend>
+          <p class="muted small">Looked up offline in iptoasn.com's public-domain table of routed address ranges.</p>
+          <dl class="kv" id="set-geo"></dl>
+          <button type="button" class="tb" id="set-geo-update">Download the latest table</button>
+          <p class="muted small" id="set-geo-status" role="status"></p>
+        </fieldset>
+      </div>
+      <p class="error" id="settings-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="settings-cancel">Close</button>
+        <button type="submit" class="tb tb-primary" id="settings-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="detection-dialog" class="wide" aria-labelledby="detection-title">
+    <form method="dialog" id="detection-form">
+      <h2 id="detection-title">Detection</h2>
+      <p class="muted small">The rule-based detectors (beaconing, DNS tunnels, exfiltration, downloads, scans, spoofing) always run. The choice here is what else looks at every session: a model that scores how unlike benign traffic it is, or an agent that reviews the unusual ones.</p>
+      <div class="table-wrap det-models">
+        <table class="data-table" id="det-models">
+          <thead><tr><th class="c-use">In use</th><th>Detector</th><th class="num" title="The share of held-out benign sessions it alerts on">Benign alert rate</th><th class="num" title="The share of labelled attack sessions it alerts on">Attacks caught</th><th>About</th><th class="c-act"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted small" id="det-rates"></p>
+      <p class="error" id="det-model-error" role="alert"></p>
+      <div class="settings-grid det-grid">
+        <fieldset class="choices">
+          <legend>Add your own model</legend>
+          <p class="muted small">An ONNX file that takes one float input of shape [N, 10], a row of ANTA's session features in this order, and gives one score per session (or a two-class classifier's probabilities, class 1 malicious):</p>
+          <p class="muted small mono" id="det-features"></p>
+          <p class="muted small">ANTA runs it on held-out benign sessions to set its alert threshold, and on labelled attack sessions to show what it catches, before you choose it. It runs on the CPU, offline.</p>
+          <div class="det-file">
+            <button type="button" class="tb" id="det-file-pick">Choose ONNX file…</button>
+            <span class="muted small mono" id="det-file-name">No file chosen</span>
+            <input type="file" id="det-file" accept=".onnx" hidden>
+          </div>
+          <label for="det-name">Name</label>
+          <input id="det-name" type="text" maxlength="80" placeholder="Shown in the list and in alerts">
+          <label for="det-direction">Which scores are anomalous</label>
+          <select id="det-direction">
+            <option value="auto">Work it out from the attack sessions</option>
+            <option value="lower">Lower (like an Isolation Forest)</option>
+            <option value="higher">Higher (like a probability of malicious)</option>
+          </select>
+          <label for="det-fp">Benign alert rate to aim for (%)</label>
+          <input id="det-fp" type="number" min="0.01" max="20" step="0.01" value="0.5">
+          <button type="button" class="tb" id="det-add">Check and calibrate</button>
+          <p class="muted small" id="det-add-status" role="status"></p>
+        </fieldset>
+        <fieldset class="choices det-agent">
+          <legend>Detection agent</legend>
+          <p class="muted small">Chosen as the detector, the agent reviews sessions the rule detectors didn't flag that go to destinations few of your hosts use. It can look up what ANTA already knows (who else talks to the destination, its DNS names, where it is, threat-intel matches, the conversation's history) and answers malicious, suspicious or benign with its reasons. It only reads: nothing it says acts on the network.</p>
+          <div class="det-providers" role="radiogroup" aria-label="What the agent is">
+            <label class="check"><input type="radio" name="det-provider" value="claude" id="det-provider-claude"> Claude (Anthropic)</label>
+            <label class="check"><input type="radio" name="det-provider" value="openai" id="det-provider-openai"> OpenAI</label>
+            <label class="check"><input type="radio" name="det-provider" value="gemini" id="det-provider-gemini"> Google Gemini</label>
+            <label class="check"><input type="radio" name="det-provider" value="compatible" id="det-provider-compatible"> An OpenAI-compatible server: a model on this computer (Ollama, LM Studio, llama.cpp, vLLM) or a hosted one (OpenRouter, Groq, Mistral, …)</label>
+            <label class="check"><input type="radio" name="det-provider" value="command" id="det-provider-command"> My own program</label>
+          </div>
+          <div id="det-api">
+            <div id="det-base-row">
+              <label for="det-base">Server address</label>
+              <input id="det-base" type="url" list="det-base-list" spellcheck="false" autocomplete="off" placeholder="http://localhost:11434/v1">
+              <datalist id="det-base-list">
+                <option value="http://localhost:11434/v1">Ollama on this computer</option>
+                <option value="http://localhost:1234/v1">LM Studio on this computer</option>
+                <option value="http://localhost:8080/v1">llama.cpp server on this computer</option>
+                <option value="http://localhost:8000/v1">vLLM on this computer</option>
+                <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+                <option value="https://api.groq.com/openai/v1">Groq</option>
+                <option value="https://api.mistral.ai/v1">Mistral</option>
+              </datalist>
+              <p class="muted small">The address its OpenAI-style API answers at, usually ending in /v1. Plain http:// is allowed only to this computer or your local network; anywhere else needs https://.</p>
+            </div>
+            <label class="check"><input type="checkbox" id="det-consent"> <span id="det-consent-text">Send the sessions it reviews to Anthropic</span></label>
+            <p class="muted small" id="det-consent-note"></p>
+            <label for="det-key" id="det-key-label">Anthropic API key</label>
+            <div class="det-key">
+              <input id="det-key" type="password" autocomplete="off" spellcheck="false" placeholder="Kept on this computer, readable only by you">
+              <button type="button" class="tb" id="det-key-save">Save key</button>
+              <button type="button" class="tb" id="det-key-forget">Forget</button>
+            </div>
+            <p class="muted small" id="det-key-status"></p>
+            <div id="det-claude">
+              <label for="det-model">Claude model</label>
+              <select id="det-model">
+                <option value="claude-opus-5-5">Claude Opus 5.5 (most capable)</option>
+                <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (faster, costs less)</option>
+                <option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest, costs least)</option>
+              </select>
+              <label for="det-effort">Effort</label>
+              <select id="det-effort">
+                <option value="low">Low: quickest answers</option>
+                <option value="medium">Medium</option>
+                <option value="high">High: most thorough</option>
+              </select>
+              <p class="warn small" id="det-sdk" hidden>The Anthropic SDK is missing from this copy of ANTA: reinstall it, or run make setup in a source checkout.</p>
+            </div>
+            <div id="det-other">
+              <label for="det-model-name">Model</label>
+              <div class="det-key">
+                <input id="det-model-name" list="det-model-list" spellcheck="false" autocomplete="off">
+                <button type="button" class="tb" id="det-model-fetch" title="Ask the provider which models your key (or the server) offers">List models</button>
+              </div>
+              <datalist id="det-model-list"></datalist>
+              <p class="muted small" id="det-model-note">Type a model's name, or press List models to choose from the ones available to you.</p>
+            </div>
+          </div>
+          <div id="det-command">
+            <p class="muted small">A program named as <span class="mono">agent_command</span> in anta.toml. It gets one JSON request on standard input (the session and the same context) and answers one JSON verdict on standard output. It can only be set in that file.</p>
+            <p class="small mono" id="det-command-line"></p>
+          </div>
+          <label class="check"><input type="checkbox" id="det-share"> Give the agent internal addresses as they are</label>
+          <p class="muted small">Otherwise they go as internal-host-1, internal-host-2, … (a fresh set for each review) and are translated back in its answers.</p>
+          <label for="det-rate">Reviews per hour, at most</label>
+          <input id="det-rate" type="number" min="1" max="1000" step="1">
+          <div class="det-actions">
+            <button type="button" class="tb" id="det-agent-save">Save agent settings</button>
+            <button type="button" class="tb" id="det-agent-test" title="One review of a made-up session to a documentation address (203.0.113.77)">Test the agent</button>
+          </div>
+          <p class="muted small" id="det-agent-status" role="status"></p>
+          <dl class="kv" id="det-agent-stats"></dl>
+        </fieldset>
+      </div>
+      <p class="error" id="detection-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="submit" class="tb tb-primary" id="detection-close">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="shift-dialog" aria-labelledby="shift-title">
+    <form id="shift-form" method="dialog">
+      <h2 id="shift-title">Time shift</h2>
+      <p class="muted small">Wireshark's Edit → Time Shift, for the times ANTA shows: the capture file isn't changed. Use it when a sensor's clock was wrong, or to line a capture up with logs.</p>
+      <label class="check"><input type="radio" name="shift-how" value="by" checked> Shift every packet by</label>
+      <input id="shift-by" type="text" spellcheck="false" placeholder="-01:30:00 or +2.5 (seconds)" aria-label="Shift by">
+      <label class="check"><input type="radio" name="shift-how" value="set"> Set the time of packet</label>
+      <div class="shift-set">
+        <input id="shift-frame" type="number" min="1" step="1" aria-label="Packet number">
+        <span>to</span>
+        <input id="shift-to" type="text" spellcheck="false" placeholder="2026-10-06 10:00:00.000000" aria-label="Its new date and time">
+      </div>
+      <p class="muted small" id="shift-now"></p>
+      <p class="error" id="shift-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="shift-undo">Undo the shift</button>
+        <span class="spacer"></span>
+        <button type="button" class="tb" id="shift-cancel">Cancel</button>
+        <button type="submit" class="tb tb-primary">Shift</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="explain-dialog" class="wide" aria-labelledby="explain-title">
+    <div class="explain">
+      <h2 id="explain-title">Explain</h2>
+      <p class="muted small" id="explain-sub">What happened, why it most likely happened, and what to check next, from the packets themselves. Every finding names the frames it rests on; nothing leaves this computer.</p>
+      <div class="explain-body" id="explain-body" tabindex="0"></div>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="explain-copy">Copy as text</button>
+        <button type="button" class="tb" id="explain-ai" title="Ask the AI model set up under Detection… to explain the same packets (you see what is sent first)">Explain with AI…</button>
+        <span class="spacer"></span>
+        <button type="button" class="tb tb-primary" id="explain-close">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="ai-dialog" class="wide" aria-labelledby="ai-title">
+    <div class="explain">
+      <h2 id="ai-title">Explain with AI</h2>
+      <div class="explain-body ai-body" id="ai-body" tabindex="0" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button type="button" class="tb" id="ai-copy" hidden>Copy as text</button>
+        <span class="spacer"></span>
+        <button type="button" class="tb tb-primary" id="ai-send" hidden>Send</button>
+        <button type="button" class="tb" id="ai-close">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="hunt-dialog" class="wide hunt-dialog" aria-labelledby="hunt-title">
+    <h2 id="hunt-title">Sweep for indicators</h2>
+    <div class="hunt-split">
+      <section class="hunt-input" aria-label="Indicators">
+        <div class="hunt-form">
+          <p class="muted small">One or more per line, as threat reports print them: IP addresses (optionally with :port), CIDR networks, domains (subdomains match too), URLs, SHA-256 file hashes, JA3 or JA4 fingerprints, and file names written file:name.exe. Defanged forms such as hxxp and [.] are fine. Everything is matched on this computer; nothing is looked up online.</p>
+          <textarea id="hunt-text" class="hunt-text" spellcheck="false" rows="14" aria-label="Indicators of compromise"
+                    placeholder="203.0.113[.]108&#10;archive.ubuntu.com&#10;192.168.5.0/28&#10;file:router3_backup.config"></textarea>
+          <div class="hunt-actions">
+            <button type="button" class="tb tb-primary" id="hunt-run">Sweep the capture</button>
+            <button type="button" class="tb" id="hunt-from-alerts" title="The addresses, domains, URLs and hashes of the high and critical alerts">Add from alerts</button>
+            <button type="button" class="tb" id="hunt-clear">Clear</button>
+          </div>
+          <p class="error" id="hunt-error" role="alert"></p>
+          <div id="hunt-rejected"></div>
+        </div>
+      </section>
+      <section class="hunt-results" aria-labelledby="hunt-results-title">
+        <div class="pane-bar">
+          <h2 id="hunt-results-title">Results <span class="count" id="hunt-count"></span></h2>
+          <span class="spacer"></span>
+          <button type="button" class="tb" id="hunt-csv" disabled>Export results (CSV)</button>
+        </div>
+        <div class="tool-scroll" id="hunt-body"><p class="empty">Paste indicators and sweep the capture.</p></div>
+      </section>
+    </div>
+    <div class="dialog-actions">
+      <span class="muted small">Threat intelligence feeds (checked on every session) are under File → Settings.</span>
+      <span class="spacer"></span>
+      <button type="button" class="tb tb-primary" id="hunt-close">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="policy-dialog" class="wide" aria-labelledby="policy-title">
+    <h2 id="policy-title">Network rules</h2>
+    <p class="muted small">One rule per line, in plain words (block 10.0.0.5 · no ubuntu hosts on the network · don't let router configs be
+      uploaded) or pasted from a firewall (iptables, ufw, pf, Cisco). Every rule is a <strong>test</strong> (does this capture break it?) and a
+      <strong>firewall rule</strong> (enforced, what would it block?). Checked as you type; saved rules apply to every capture you open.
+      Nothing touches a real firewall.</p>
+    <div class="policy-split">
+      <div class="policy-edit">
+        <label class="inline small rules-place">Enforce
+          <select id="policy-placement" class="tb small">
+            <option value="border">at the border (between your network and the internet)</option>
+            <option value="host">on every device</option>
+          </select></label>
+        <label for="policy-rules" class="case-label">Rules</label>
+        <textarea id="policy-rules" class="policy-rules" rows="12" spellcheck="false"
+                  placeholder="block 10.0.0.5&#10;no ubuntu hosts on the network&#10;don't let router configs be uploaded&#10;nothing uses telnet&#10;only 10.0.0.1 answers DNS&#10;iptables -A INPUT -p tcp --dport 23 -j DROP"></textarea>
+        <div class="first-actions">
+          <button type="button" class="tb small" id="policy-examples" aria-haspopup="menu">Add a rule ▾</button>
+          <button type="button" class="tb small" id="policy-guide-toggle" aria-expanded="false" aria-controls="policy-guide">What can I write?</button>
+          <span class="muted small" id="policy-state" role="status"></span>
+        </div>
+        <div class="rules-guide" id="policy-guide" hidden>
+          <input type="search" id="policy-guide-search" class="pkt-filter" placeholder="Find: block, ubuntu, upload, dns, iptables…"
+                 aria-label="Find in what rules can say">
+          <p class="muted small">Click an example to add it, then change the address or name. Lines starting with # are notes.</p>
+          <div id="policy-guide-list"></div>
+        </div>
+      </div>
+      <div class="policy-results" id="policy-results" aria-live="polite"></div>
+    </div>
+    <p class="error" id="policy-error" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" class="tb" id="policy-revert">Revert to saved</button>
+      <span class="spacer"></span>
+      <button type="button" class="tb" id="policy-close">Close</button>
+      <button type="button" class="tb tb-primary" id="policy-save">Save rules</button>
+    </div>
+  </dialog>
+
+  <dialog id="persona-dialog" class="wide" aria-labelledby="persona-title">
+    <h2 id="persona-title">Device personalities</h2>
+    <p class="muted small" id="persona-sub">Each device on the network in one sentence: what it is, what it mostly does, which way its data flows, whom it talks to. Remember them as normal, and later captures show what each device does differently.</p>
+    <div class="persona-list" id="persona-list" aria-live="polite"></div>
+    <p class="error" id="persona-error" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" class="tb" id="persona-forget" title="Stop comparing with the devices remembered earlier">Forget what was remembered</button>
+      <span class="spacer"></span>
+      <button type="button" class="tb" id="persona-close">Close</button>
+      <button type="button" class="tb tb-primary" id="persona-remember" title="Keep these devices' behavior as the normal that later captures are compared with">Remember these as normal</button>
+    </div>
+  </dialog>
+
+  <dialog id="ignore-dialog" aria-labelledby="ignore-title">
+    <h2 id="ignore-title">Ignored alert sources</h2>
+    <p class="muted small">Alerts whose source is one of these (an address, a network or a MAC address), of every kind or of one kind, are set aside:
+      they leave the alert list, the stories and <em>What to look at first</em>. Alerts <em>to</em> that address still show. Stop ignoring a source and its
+      alerts come back. The list applies to every capture.</p>
+    <div class="ignore-list" id="ignore-list" aria-live="polite"></div>
+    <form class="ignore-add" id="ignore-add">
+      <label class="inline">Source <input type="text" id="ignore-source" class="tb mono" placeholder="10.0.0.1, 10.0.0.0/24 or a MAC" spellcheck="false" autocomplete="off" required></label>
+      <label class="inline">Alerts <select id="ignore-kind" class="tb"><option value="">of every kind</option></select></label>
+      <label class="inline">Note <input type="text" id="ignore-note" class="tb" maxlength="200" placeholder="why (optional)"></label>
+      <button type="submit" class="tb tb-primary">Ignore</button>
+    </form>
+    <p class="error" id="ignore-error" role="alert"></p>
+    <div class="dialog-actions">
+      <span class="spacer"></span>
+      <button type="button" class="tb" id="ignore-close">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="case-dialog" class="wide" aria-labelledby="case-title">
+    <h2 id="case-title">Investigation</h2>
+    <p class="muted small" id="case-sub"></p>
+    <div class="case-open" id="case-open" hidden role="alert"></div>
+    <label for="case-notes" class="case-label">Notes</label>
+    <textarea id="case-notes" class="case-notes" rows="5" maxlength="50000"
+              placeholder="What you are looking into, what you checked, what you concluded. Saved with the investigation and put in the incident report."></textarea>
+    <p class="muted small" id="case-notes-saved" role="status"></p>
+    <h3 class="case-label">Pinned answers <span class="count" id="case-pin-count"></span></h3>
+    <div class="case-pins" id="case-pins"></div>
+    <p class="error" id="case-error" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" class="tb" id="case-open-file" title="An investigation saved earlier (notes, pins, verdicts, focus)">Open investigation…</button>
+      <button type="button" class="tb" id="case-save" title="Notes, pinned answers, your verdicts on the alerts and the focus, as a file (no packets)">Save investigation…</button>
+      <button type="button" class="tb" id="case-report">Incident report…</button>
+      <span class="spacer"></span>
+      <button type="button" class="tb tb-primary" id="case-close">Close</button>
+    </div>
+    <input type="file" id="case-file" accept=".json,application/json" hidden>
+  </dialog>
+
+  <dialog id="report-dialog" class="wide" aria-labelledby="report-title">
+    <h2 id="report-title">Incident report</h2>
+    <p class="muted small">Built from this session's alerts and the capture's own evidence. Nothing leaves this computer.</p>
+    <pre class="report-text" id="report-text" tabindex="0"></pre>
+    <div class="dialog-actions">
+      <button type="button" class="tb" id="report-copy">Copy</button>
+      <button type="button" class="tb" id="report-save">Save as text file</button>
+      <span class="spacer"></span>
+      <button type="button" class="tb tb-primary" id="report-close">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="follow-dialog" class="wide" aria-labelledby="follow-title">
+    <div class="follow">
+      <h2 id="follow-title">Follow stream</h2>
+      <p class="muted small" id="follow-sub"></p>
+      <div class="follow-body" id="follow-body" tabindex="0"></div>
+      <div class="dialog-actions">
+        <label class="inline" id="follow-view-wrap" hidden>View
+          <select id="follow-view" class="tb small" title="The TCP bytes, the TLS application data decrypted with your key log, or one HTTP/2 stream inside it"></select></label>
+        <label class="inline">Show
+          <select id="follow-dir" class="tb small">
+            <option value="both">Entire conversation</option>
+            <option value="0">Client → server only</option>
+            <option value="1">Server → client only</option>
+          </select></label>
+        <label class="inline">as
+          <select id="follow-as" class="tb small">
+            <option value="ascii">ASCII</option>
+            <option value="hex">Hex dump</option>
+          </select></label>
+        <span class="spacer"></span>
+        <button type="button" class="tb" id="follow-filter">Filter on this stream</button>
+        <button type="button" class="tb tb-primary" id="follow-close">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/packets-tools.js"></script>
+  <script src="/static/stats.js"></script>
+  <script src="/static/graphs.js"></script>
+  <script src="/static/rhythm.js"></script>
+  <script src="/static/ask.js"></script>
+  <script src="/static/storyline.js"></script>
+  <script src="/static/netmap.js"></script>
+  <script src="/static/incident.js"></script>
+  <script src="/static/casework.js"></script>
+  <script src="/static/diagnose.js"></script>
+  <script src="/static/inventory.js"></script>
+  <script src="/static/apps.js"></script>
+  <script src="/static/physics.js"></script>
+  <script src="/static/lint.js"></script>
+  <script src="/static/detection.js"></script>
+  <script src="/static/protoguide.js"></script>
+  <script src="/static/shell.js"></script>
+  <script src="/static/context.js"></script>
+  <script src="/static/selection.js"></script>
+  <script src="/static/quicktool.js"></script>
+  <script src="/static/hostpanel.js"></script>
+  <script src="/static/command.js"></script>
+  <script src="/static/casefile.js"></script>
+  <script src="/static/triage.js"></script>
+  <script src="/static/policy.js"></script>
+  <script src="/static/timemachine.js"></script>
+  <script src="/static/personality.js"></script>
+  <script src="/static/ignored.js"></script>
+</body>
+</html>

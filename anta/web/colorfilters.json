@@ -1,0 +1,149 @@
+[
+ {
+  "name": "Bad TCP",
+  "filter": "tcp.analysis.flags && !tcp.analysis.window_update && !tcp.analysis.keep_alive && !tcp.analysis.keep_alive_ack",
+  "bg": "#12272e",
+  "fg": "#f78787",
+  "enabled": true
+ },
+ {
+  "name": "HSRP State Change",
+  "filter": "hsrp.state != 8 && hsrp.state != 16",
+  "bg": "#12272e",
+  "fg": "#fffc9c",
+  "enabled": true
+ },
+ {
+  "name": "Spanning Tree Topology  Change",
+  "filter": "stp.type == 0x80",
+  "bg": "#12272e",
+  "fg": "#fffc9c",
+  "enabled": true
+ },
+ {
+  "name": "OSPF State Change",
+  "filter": "ospf.msg != 1",
+  "bg": "#12272e",
+  "fg": "#fffc9c",
+  "enabled": true
+ },
+ {
+  "name": "ICMP errors",
+  "filter": "icmp.type in { 3..5, 11 } || icmpv6.type in { 1..4 }",
+  "bg": "#12272e",
+  "fg": "#b7f774",
+  "enabled": true
+ },
+ {
+  "name": "ARP",
+  "filter": "arp",
+  "bg": "#faf0d7",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "ICMP",
+  "filter": "icmp || icmpv6",
+  "bg": "#fce0ff",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "TCP RST",
+  "filter": "tcp.flags.reset eq 1",
+  "bg": "#a40000",
+  "fg": "#fffc9c",
+  "enabled": true
+ },
+ {
+  "name": "SCTP ABORT",
+  "filter": "sctp.chunk_type eq ABORT",
+  "bg": "#a40000",
+  "fg": "#fffc9c",
+  "enabled": true
+ },
+ {
+  "name": "IPv4 TTL low or unexpected",
+  "filter": "(ip.dst != 224.0.0.0/4 && ip.ttl < 5 && !(pim || ospf || eigrp || bgp || tcp.port==179)) || (ip.dst == 224.0.0.0/24 && ip.dst != 224.0.0.251 && ip.ttl != 1 && !(vrrp || carp || eigrp || rip || glbp))",
+  "bg": "#a40000",
+  "fg": "#ecf0eb",
+  "enabled": true
+ },
+ {
+  "name": "IPv6 hop limit low or unexpected",
+  "filter": "(ipv6.dst != ff00::/8 && ipv6.hlim < 5 && !( ospf|| bgp || tcp.port==179)) || (ipv6.dst==ff00::/8 && ipv6.hlim not in {1, 64, 255})",
+  "bg": "#a40000",
+  "fg": "#ecf0eb",
+  "enabled": true
+ },
+ {
+  "name": "Checksum Errors",
+  "filter": "eth.fcs.status==\"Bad\" || ip.checksum.status==\"Bad\" || tcp.checksum.status==\"Bad\" || udp.checksum.status==\"Bad\" || sctp.checksum.status==\"Bad\" || mstp.checksum.status==\"Bad\" || cdp.checksum.status==\"Bad\" || edp.checksum.status==\"Bad\" || wlan.fcs.status==\"Bad\" || stt.checksum.status==\"Bad\"",
+  "bg": "#12272e",
+  "fg": "#f78787",
+  "enabled": true
+ },
+ {
+  "name": "SMB",
+  "filter": "smb || nbss || nbns || netbios",
+  "bg": "#feffd0",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "HTTP",
+  "filter": "http || tcp.port == 80 || http2",
+  "bg": "#e4ffc7",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "DCERPC",
+  "filter": "dcerpc",
+  "bg": "#c797ff",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "Routing",
+  "filter": "hsrp || eigrp || ospf || bgp || cdp || vrrp || carp || gvrp || igmp || ismp",
+  "bg": "#fff3d5",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "TCP SYN/FIN",
+  "filter": "tcp.flags & 0x02 || tcp.flags.fin == 1",
+  "bg": "#a0a0a0",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "TCP",
+  "filter": "tcp",
+  "bg": "#e7e5ff",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "UDP",
+  "filter": "udp",
+  "bg": "#daeeff",
+  "fg": "#12272e",
+  "enabled": true
+ },
+ {
+  "name": "Broadcast",
+  "filter": "eth[0] & 1",
+  "bg": "#ffffff",
+  "fg": "#babdb6",
+  "enabled": true
+ },
+ {
+  "name": "System Event",
+  "filter": "systemd_journal || sysdig",
+  "bg": "#e6e6e6",
+  "fg": "#2d6f9a",
+  "enabled": true
+ }
+]
