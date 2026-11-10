@@ -41,6 +41,11 @@ function cmdRead(text) {
   }
   if (/^(?:ignored|ignore list|ignored (?:sources?|alerts?|hosts?|addresses))$/i.test(t)) return { kind: "ignored", label: "↵ ignored alert sources" };
   if (/^(?:speed of light|physics|light check|where are the servers\??)$/i.test(t)) return { kind: "tool", tool: "physics", label: "↵ speed of light" };
+  if (/^(?:machines behind(?: addresses)?|clocks?|hidden devices|devices behind (?:a |one )?(?:address|router|nat)|nat count|how many (?:machines|devices) behind .*|(?:many|several) (?:addresses|servers),? one machine)$/i.test(t)) return { kind: "tool", tool: "clocks", label: "↵ machines behind addresses" };
+  if (/^(?:before(?: the)? capture|pre-?history|what happened before(?: (?:the capture|recording|it started))?\??|before recording)$/i.test(t)) return { kind: "tool", tool: "before", label: "↵ before the capture" };
+  if (/^(?:(?:certificate of )?quiet|quiet certificate|what (?:could|might) have (?:left|leaked)\??|(?:could anything|did anything) (?:leak|leave)(?: unnoticed)?\??|hidden data|how much could hide\??)$/i.test(t)) return { kind: "tool", tool: "quiet", label: "↵ certificate of quiet" };
+  if (/^(?:tamper(?: seal| check)?|seal(?: (?:it|the capture|this))?|was (?:this|it|the capture) (?:edited|changed|tampered(?: with)?)\??|integrity(?: check)?|verify (?:the )?(?:capture|file))$/i.test(t)) return { kind: "tool", tool: "seal", label: "↵ tamper seal" };
+  if (/^(?:(?:installed )?software|(?:installed )?programs|outdated(?: software)?|out of date(?: software)?|what software(?: is installed| runs)?\??|versions)$/i.test(t)) return { kind: "tool", tool: "software", label: "↵ installed software" };
   if (/^(?:spell ?check|protocol spell ?check|lint|rfc check|conformance)$/i.test(t)) return { kind: "tool", tool: "lint", label: "↵ protocol spell-check" };
   // A display filter: its syntax, or a field or protocol name (from the filter catalog) on its own.
   const bare = /^!?\(?\s*([a-z][a-z0-9_.-]*)\s*\)?$/i.exec(t);

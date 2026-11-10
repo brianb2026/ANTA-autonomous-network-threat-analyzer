@@ -33,6 +33,7 @@ struct HttpResponse {
     int status = 0;
     std::string server;
     std::string content_type;
+    std::string powered_by;  // X-Powered-By (PHP/7.4.3, Express): software and version
 };
 
 struct TlsClientHello {

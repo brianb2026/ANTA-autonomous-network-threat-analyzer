@@ -173,6 +173,22 @@ function hostRender(d) {
     ap.append(ul, hostBtn("All its applications", () => { hostClose(); statsTool("apps", d.filter); }, "link"));
     body.append(ap);
   }
+  if (d.software && d.software.length) {
+    const sw = hostSection("Software it reports", d.software.length);
+    const ul = el("ul", { class: "host-list" });
+    for (const r of d.software.slice(0, 8)) {
+      const li = el("li");
+      const b = el("button", { type: "button", class: "host-item", title: r.why || r.evidence });
+      if (SW_SEV[r.status]) b.append(el("span", { class: `sev ${SW_SEV[r.status]}` }, r.status_text), " ");
+      b.append(el("span", {}, `${r.name}${r.version ? ` ${r.version}` : ""}`),
+        el("span", { class: "muted small" }, ` ${r.role === "serves" ? "service" : r.kind}`));
+      b.addEventListener("click", () => { hostClose(); showPacketsFor(r.filter); });
+      li.append(b);
+      ul.append(li);
+    }
+    sw.append(ul, hostBtn("All its software", () => { hostClose(); statsTool("software", d.filter); }, "link"));
+    body.append(sw);
+  }
   if (d.files.length || d.logins) {
     const fs = hostSection("Files and logins", d.files.length || null);
     if (d.files.length) {

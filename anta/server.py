@@ -25,14 +25,14 @@ import sys
 import tempfile
 import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from aiohttp import WSMsgType, web
 
-from . import (apps, ask, ask_answers, assets, casefile, diagnose, explain_ai, flowlog, geoip, hunt, ignore, ingest,
-               lint, logins, netmap, paths, personality, physics, policy, quicklook, rhythm, rules, scopes, settings,
-               storyline, timeline, triage)
+from . import (apps, ask, ask_answers, assets, before, casefile, clocks, diagnose, explain_ai, flowlog, geoip, hunt, ignore,
+               ingest, lint, logins, netmap, paths, personality, physics, policy, quicklook, quiet, rhythm, rules, scopes, seal,
+               settings, software, storyline, timeline, triage)
 from .agent import PROVIDERS, AgentError, AgentSettings, Reviewer
 from .agent_context import AgentContext
 from .analyzer import TITLES, TRIAGE_STATUSES, Analyzer, alert_summary
@@ -837,17 +837,19 @@ class Dashboard:
                 rep = logins.report(await self.packets.index())
                 logins_n = sum(r["logins"] for r in rep["logins"] if ip in (r["client"], r["server"]))
         row = next((r for r in assets_rows if r["ip"] == ip), None) if ip else None
-        used, persona = [], None
+        used, persona, sw = [], None, []
         with contextlib.suppress(PacketError):
             if ip and not scope:
                 used = (await self._apps(await self.packets.index()))["devices"].get(ip, [])[:8]
                 persona = next((d for d in (await self._personalities())["report"]["devices"] if d["ip"] == ip), None)
+                inv = await self._software(await self.packets.index())
+                sw = next((h["software"] for h in inv["hosts"] if h["ip"] == ip), [])[:10]
         return json_response({
             "addr": addr, "ip": ip, "name": (row or {}).get("name") or names.get(ip, ""),
             "kind": netmap.scope_of(ip) if ip else "mac", "device": (row or {}).get("device"),
             "lines": ident.get("lines") or [], "facts": [r["cells"] for r in (ident.get("table") or {}).get("rows") or []],
             "peers": talk.get("table"), "peer_lines": talk.get("lines") or [], "peer_count": talk.get("count", 0),
-            "alerts": alerts[:50], "files": files, "apps": used,
+            "alerts": alerts[:50], "files": files, "apps": used, "software": sw,
             "personality": {"sentence": persona["sentence"], "changes": persona["changes"]} if persona else None,
             "logins": logins_n, "filter": ask_answers.addr_filter(ip) if ip else flt, "scoped": bool(scope)})
 
@@ -1753,6 +1755,143 @@ class Dashboard:
             return json_response({"error": str(exc)}, status=exc.status)
         return json_response(await self._apps(sessions))
 
+    def _recording(self) -> bool:
+        return bool(self.packets.files.live and self.sessions
+                    and self.sessions.state.get("state") in ("preparing", "starting", "authorizing", "running"))
+
+    async def _seal_report(self, fresh: bool = False) -> dict:
+        """The tamper seal (seal.py) for the open capture, kept until the file or its seal changes."""
+        files = self.packets.files.inputs()
+        if not files:
+            raise PacketError("the tamper seal needs a capture file (or a recorded live capture)", 409)
+        key = seal.seal_key([p for p, _ in files])
+        sealed = seal.load_seals().get(key)
+        state = (self.packets._file_state(), json.dumps(sealed, sort_keys=True), self._recording())
+        cached = getattr(self, "_seal_cache", None)
+        if cached and cached[0] == state and not fresh:
+            return cached[1]
+        bad = await self.packets.packet_times("ip.checksum_bad || tcp.checksum_bad || udp.checksum_bad", 5000, frames=True)
+        missing = [(float(r["ts"]), str(r.get("src") or ""), str(r.get("dst") or ""), int(r.get("len") or 0), int(r.get("n") or 0),
+                    ((r.get("f") or {}).get("tcp.stream") or [""])[0])
+                   for r in await self.packets.frames_with_fields("tcp.analysis.lost_segment || tcp.analysis.ack_lost_segment",
+                                                                  "tcp.stream", 5000) if r.get("type") == "packet"]
+        counts = {"bad_checksums": len(bad), "missing": len(missing), "bad_frames": [r[4] for r in bad[:20]]}
+        # How many packets each sender of a wrong checksum sent in all: offloading spoils nearly every one.
+        senders = []
+        for ip, _ in Counter(r[1] for r in bad).most_common(10):
+            with contextlib.suppress(ValueError):
+                senders.append(str(ipaddress.ip_address(ip)))
+        sent: dict[str, int] = {}
+        if senders:
+            st = await self.packets.stats("", "", 0, [], [f"{'ipv6' if ':' in ip else 'ip'}.src == {ip}" for ip in senders])
+            for ip, c in zip(senders, st["stats"].get("counts") or [], strict=False):
+                sent[ip] = int(c.get("count") or 0)
+        result = await asyncio.get_running_loop().run_in_executor(None, seal.report, files, bad, missing, counts, sealed,
+                                                                  self._recording(), sent)
+        result["names"] = [os.path.basename(p) for p, _ in files]
+        result["recording"] = self._recording()
+        self._seal_cache = (state, result)
+        return result
+
+    async def seal_get(self, request: web.Request) -> web.Response:
+        """Was the open capture edited, spliced or cut, and has it changed since it was sealed?"""
+        try:
+            return json_response(await self._seal_report())
+        except PacketError as exc:
+            return json_response({"error": str(exc)}, status=exc.status)
+
+    async def seal_post(self, request: web.Request) -> web.Response:
+        """Record the open capture's seal (its SHA-256) so later changes show."""
+        try:
+            files = self.packets.files.inputs()
+            if not files:
+                raise PacketError("there is no capture file to seal", 409)
+            if self._recording():
+                raise PacketError("stop the capture first: a file still being recorded changes with every packet", 409)
+            names = [p for p, _ in files]
+            fp = await asyncio.get_running_loop().run_in_executor(None, seal.fingerprint, names)
+            await asyncio.get_running_loop().run_in_executor(None, seal.save_seal, seal.seal_key(names), {
+                "sha256": fp["sha256"], "size": fp["size"], "sealed": time.time(), "names": [os.path.basename(n) for n in names]})
+            return json_response(await self._seal_report(fresh=True))
+        except PacketError as exc:
+            return json_response({"error": str(exc)}, status=exc.status)
+
+    async def clocks_get(self, request: web.Request) -> web.Response:
+        """Machines behind addresses (clocks.py): several machines behind one address, one machine
+        behind several, from the clocks their TCP timestamps read."""
+        try:
+            sessions = await self._sessions_in(request)
+        except PacketError as exc:
+            return json_response({"error": str(exc)}, status=exc.status)
+        return json_response(await asyncio.get_running_loop().run_in_executor(None, clocks.analyse, sessions))
+
+    async def before_get(self, request: web.Request) -> web.Response:
+        """Before the capture (before.py): what the recorded traffic shows happened before recording
+        began (connections already open, addresses already known, the resolver's cache, DHCP leases
+        held, TLS sessions resumed)."""
+        try:
+            sessions = await self.packets.index()
+            dns_rows = await self.packets.frames_with_fields(
+                "dns.flags.response == 1 && dns.resp.ttl", "dns.qry.name,dns.resp.type,dns.resp.ttl,dns.a,dns.aaaa", 20000)
+            dhcp_rows = await self.packets.frames_with_fields(
+                "dhcp", "dhcp.option.dhcp,dhcp.hw.mac_addr,dhcp.ip.client,dhcp.option.requested_ip_address,"
+                "dhcp.option.dhcp_lease_time,dhcp.option.renewal_time_value", 5000)
+            resumed = await self.packets.frames_with_fields("tls.handshake.type == 1 && tls.handshake.extension.type == 41",
+                                                            "tls.handshake.extensions_server_name", 5000)
+            st = await self.packets.stats()
+        except PacketError as exc:
+            return json_response({"error": str(exc)}, status=exc.status)
+        props = st["stats"].get("properties") or {}
+        pick = [r for r in dns_rows if r.get("type") == "packet"], [r for r in dhcp_rows if r.get("type") == "packet"], \
+            [r for r in resumed if r.get("type") == "packet"]
+        result = await asyncio.get_running_loop().run_in_executor(None, before.reconstruct, sessions, *pick,
+                                                                  props.get("first") if props.get("frames") else None)
+        result["names"] = [os.path.basename(p) for p, _ in self.packets.files.inputs()]
+        return json_response(result)
+
+    async def quiet_get(self, request: web.Request) -> web.Response:
+        """The certificate of quiet (quiet.py): per device, what it sent to the internet openly,
+        the most it could have hidden in headers and timing, and when it sent nothing at all."""
+        try:
+            sessions = await self._sessions_in(request)
+            scope = self._scope(request.query.get("scope"))
+            within = self._within(scope, "")
+            icmp = await self.packets.packet_times(f"({within}) && (icmp || icmpv6)" if within else "icmp || icmpv6", 50000)
+            other = "(ip || ipv6) && !tcp && !udp && !icmp && !icmpv6"
+            other_rows = await self.packets.packet_times(f"({within}) && ({other})" if within else other, 50000)
+            st = await self.packets.stats(within, "", 0, [], ["tcp.urgent_pointer != 0 && tcp.flags.urg == 0",
+                                                              "tcp.flags.res != 0 || ip.flags.rb == 1"])
+        except PacketError as exc:
+            return json_response({"error": str(exc)}, status=exc.status)
+        counts = st["stats"].get("counts") or [{}, {}]
+        props = st["stats"].get("properties") or {}
+        used = {"urgent": counts[0].get("count", 0), "reserved": counts[1].get("count", 0)}
+        span = (props.get("first"), props.get("last")) if props.get("frames") else None
+        result = await asyncio.get_running_loop().run_in_executor(None, quiet.certify, sessions, icmp, other_rows, used, span)
+        result["names"] = [os.path.basename(p) for p, _ in self.packets.files.inputs()]
+        result["recording"] = self._recording()
+        result["scoped"] = bool(scope)
+        return json_response(result)
+
+    async def software_list(self, request: web.Request) -> web.Response:
+        """Installed software read from the outside (software.py): each device's programs and
+        versions as its own traffic reports them, judged against the end-of-support table."""
+        try:
+            sessions = await self._sessions_in(request)
+        except PacketError as exc:
+            return json_response({"error": str(exc)}, status=exc.status)
+        return json_response(await self._software(sessions))
+
+    async def _software(self, sessions: list[dict]) -> dict:
+        """software.inventory, kept for the session list it was made from."""
+        key = (id(sessions), len(sessions))
+        cached = getattr(self, "_software_cache", None)
+        if cached and cached[0] == key:
+            return cached[1]
+        result = await asyncio.get_running_loop().run_in_executor(None, software.inventory, sessions)
+        self._software_cache = (key, result)
+        return result
+
     async def physics_check(self, request: web.Request) -> web.Response:
         """The speed-of-light check (physics.py): how far each internet server can be from the
         capture point, from its fastest handshake, and whether the country its network is
@@ -2295,6 +2434,12 @@ class Dashboard:
         app.router.add_get("/api/logins", self.cleartext_logins)
         app.router.add_get("/api/apps", self.app_usage)
         app.router.add_get("/api/physics", self.physics_check)
+        app.router.add_get("/api/software", self.software_list)
+        app.router.add_get("/api/seal", self.seal_get)
+        app.router.add_get("/api/quiet", self.quiet_get)
+        app.router.add_get("/api/before", self.before_get)
+        app.router.add_get("/api/clocks", self.clocks_get)
+        app.router.add_post("/api/seal", self.seal_post)
         app.router.add_put("/api/physics/point", self.physics_point_put)
         app.router.add_get("/api/physics/world", self.physics_world)
         app.router.add_get("/api/intel", self.intel_feeds)

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <climits>
 #include <cerrno>
 #include <cstdio>
@@ -210,6 +211,26 @@ std::string redact_uri(const std::string& uri) {
 
 const char* proto_name(uint8_t p) { return p == 6 ? "tcp" : p == 17 ? "udp" : "other"; }
 
+// A connection's software greeting, read from its first bytes: an SSH identification line
+// ("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13") from either side, or a server's greeting
+// ("220 (vsFTPd 3.0.5)", "+OK Dovecot ready.", "* OK IMAP4rev1"). Only those, and only from
+// the start of the stream: a client's other first lines (an FTP USER, an SMTP EHLO) say who
+// someone is, not what software runs, so they are never kept.
+std::string greeting(const std::string& head, bool from_start, bool client) {
+    if (!from_start || head.empty()) return "";
+    size_t end = head.find_first_of("\r\n");
+    std::string line = head.substr(0, end == std::string::npos ? head.size() : end);
+    for (unsigned char c : line)
+        if (c < 0x20 || c > 0x7e) return "";
+    bool ssh = line.compare(0, 4, "SSH-") == 0;
+    bool code = line.size() >= 4 && std::isdigit(static_cast<unsigned char>(line[0])) &&
+                std::isdigit(static_cast<unsigned char>(line[1])) && std::isdigit(static_cast<unsigned char>(line[2])) &&
+                (line[3] == ' ' || line[3] == '-');
+    bool ok = line.compare(0, 3, "+OK") == 0 || line.compare(0, 4, "* OK") == 0;
+    if (client ? !ssh : !(ssh || ((code || ok) && line.size() >= 5))) return "";
+    return line;
+}
+
 std::string hex_bytes(const std::string& b) {
     static const char* digits = "0123456789abcdef";
     std::string out;
@@ -288,6 +309,18 @@ std::string serialize(const Flow& f, bool final, const std::string& capture_path
     if (f.proto == 6) {
         w.key("tcp").begin_object();
         w.kv("handshake", f.handshake_seen);
+        if (f.ts_clock[0].n || f.ts_clock[1].n) {  // [first time, first TSval, last time, last TSval, readings]
+            w.key("clock").begin_object();
+            for (int d = 0; d < 2; ++d) {
+                const auto& c = f.ts_clock[d];
+                if (!c.n) continue;
+                w.key(dir_names[d]).begin_array();
+                w.value(static_cast<double>(c.t0) / 1e6).value(static_cast<uint64_t>(c.v0));
+                w.value(static_cast<double>(c.t1) / 1e6).value(static_cast<uint64_t>(c.v1)).value(c.n);
+                w.end_array();
+            }
+            w.end_object();
+        }
         w.kv("closed", f.closed);
         w.kv("rst", f.tcp[0].rst_seen || f.tcp[1].rst_seen);
         uint64_t retrans = 0, ooo = 0, gaps = 0, zero_win = 0;
@@ -395,6 +428,7 @@ std::string serialize(const Flow& f, bool final, const std::string& capture_path
         w.kv("status", f.http_response->status);
         w.kv("server", f.http_response->server);
         w.kv("content_type", f.http_response->content_type);
+        if (!f.http_response->powered_by.empty()) w.kv("powered_by", f.http_response->powered_by);
         w.end_object();
     }
     if (f.http_bodies && !f.http_bodies->files.empty()) {
@@ -480,6 +514,15 @@ std::string serialize(const Flow& f, bool final, const std::string& capture_path
             w.end_object();
         }
         w.end_array();
+    }
+    if (f.proto == 6) {  // software greetings: the installed-software list reads versions from them
+        std::string cli = greeting(f.head[0], f.head_from_start[0], true), srv = greeting(f.head[1], f.head_from_start[1], false);
+        if (!cli.empty() || !srv.empty()) {
+            w.key("banner").begin_object();
+            if (!cli.empty()) w.kv("client", cli);
+            if (!srv.empty()) w.kv("server", srv);
+            w.end_object();
+        }
     }
     if (f.proto == 6 && (!f.head[0].empty() || !f.head[1].empty())) {
         w.key("stream_head").begin_object();

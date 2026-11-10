@@ -1319,3 +1319,54 @@ body.focused .view-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--
 .policy-table { table-layout: fixed; width: 100%; }
 .policy-table td { overflow-wrap: anywhere; }
 .policy-table td:first-child { width: 60%; }
+
+/* Installed software: one card per device that needs attention, a line per program. */
+.sw-host { border: 1px solid var(--rule); border-left: 4px solid var(--critical); padding: 6px 12px; margin: 8px 0; background: var(--panel); }
+.sw-top { display: flex; align-items: baseline; gap: 8px; font-weight: 600; }
+.sw-line { padding: 6px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.sw-line:first-of-type { border-top: 0; }
+.sw-line:hover, .sw-line:focus-visible { background: var(--select); outline: none; }
+.sw-line p { margin: 2px 0; overflow-wrap: anywhere; }
+.sw-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.sw-line code { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+
+/* Tamper seal: the verdict, the fingerprint and the checks. */
+.seal-verdict { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--rule);
+  border-left: 4px solid var(--dim); background: var(--panel); }
+.seal-verdict strong { font-size: 14px; }
+.seal-verdict.seal-changed, .seal-verdict.seal-edited { border-left-color: var(--critical); }
+.seal-verdict.seal-changed strong, .seal-verdict.seal-edited strong { color: var(--critical); }
+.seal-verdict.seal-sealed, .seal-verdict.seal-consistent { border-left-color: var(--accent); }
+.seal-fp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.seal-fp code { font-size: 11px; overflow-wrap: anywhere; min-width: 0; }
+.seal-compare { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
+.seal-compare input { flex: 1 1 320px; min-width: 0; }
+.seal-same { color: var(--accent); font-weight: 600; }
+.seal-diff { color: var(--critical); font-weight: 600; }
+.lint-item.seal-fail { border-left-color: var(--critical); }
+.lint-item.seal-pass { border-left-color: var(--accent); }
+.seal-sev-fail { color: var(--critical); }
+.seal-sev-pass { color: var(--accent); }
+
+/* Certificate of quiet: the claim, set apart like a certificate. */
+.quiet-cert { margin: 8px 0 12px; padding: 12px 16px; border: 1px solid var(--rule); outline: 1px solid var(--rule); outline-offset: 3px;
+  background: var(--panel); }
+.quiet-cert h3 { margin: 0 0 2px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.quiet-cert p { margin: 4px 0; }
+.quiet-claim { font-size: 14px; line-height: 1.45; max-width: 80ch; }
+.quiet-warn { color: var(--critical); }
+.quiet-list li { margin: 2px 0; }
+.quiet-fields { width: auto; margin: 6px 0; }
+.quiet-fields tr.muted td { color: var(--dim); }
+
+/* Before the capture: the strip of how far back findings reach (seconds before, on a log scale). */
+.before-strip { display: block; width: 100%; max-width: 760px; height: auto; margin: 6px 0 0; }
+.before-band { fill: var(--bg); stroke: var(--line); }
+.before-start { stroke: var(--text); stroke-width: 2; }
+.before-label { font: 600 11px var(--sans); fill: var(--text); }
+.before-tick { stroke: var(--dim); }
+.before-tick-label { font: 10px var(--sans); fill: var(--dim); }
+.before-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; cursor: default; }
+.before-dot.est { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
+.before-window { stroke: var(--accent); stroke-width: 4; stroke-opacity: .35; }
+.before-item .lint-top > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }

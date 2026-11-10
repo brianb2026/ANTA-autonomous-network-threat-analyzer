@@ -1476,6 +1476,164 @@ def database_lab(t0=0.0):
     return sorted(frames, key=lambda f: f[0])
 
 
+def ts_option(tsval: int, tsecr: int = 0) -> bytes:
+    """NOP, NOP, Timestamps (RFC 7323): the sender's clock reading."""
+    return b"\x01\x01\x08\x0a" + struct.pack("!II", tsval & 0xFFFFFFFF, tsecr & 0xFFFFFFFF)
+
+
+def clocked_session(client, cport, server, sport, t0, seconds, client_clock, server_clock, step=0.5):
+    """A connection whose packets carry both sides' TCP timestamps; *_clock(t) gives a side's reading at t."""
+    frames = []
+    cseq, sseq = 1000, 5000
+    frames.append((t0, tcp(client, server, cport, sport, cseq, 0, SYN, opts=ts_option(client_clock(t0)))))
+    frames.append((t0 + 0.01, tcp(server, client, sport, cport, sseq, cseq + 1, SYN | ACK,
+                                  opts=ts_option(server_clock(t0 + 0.01), client_clock(t0)))))
+    cseq += 1
+    sseq += 1
+    t = t0 + 0.02
+    while t < t0 + seconds:
+        frames.append((t, tcp(client, server, cport, sport, cseq, sseq, PSH | ACK, b"q" * 40, opts=ts_option(client_clock(t)))))
+        cseq += 40
+        frames.append((t + 0.01, tcp(server, client, sport, cport, sseq, cseq, PSH | ACK, b"r" * 60,
+                                     opts=ts_option(server_clock(t + 0.01)))))
+        sseq += 60
+        t += step
+    return frames
+
+
+def clock_lab(t0=0.0):
+    """Machines behind addresses (anta/clocks.py): a travel router hiding three machines behind
+    192.168.70.1 (two 1000/s clocks started at different times and one ticking 100/s), one server
+    answering from three addresses with one clock, a Linux-like host that randomises its clock per
+    partner, and one that randomises per connection."""
+    import random
+    rng = random.Random(70)
+
+    def clock(rate, started):  # a reading at capture time t of a clock that read 0 at `started` (seconds before base)
+        return lambda t: int((t + started) * rate)
+
+    frames = []
+    a, b, c = clock(1000, 3 * 86400 + 123.4), clock(1000, 9 * 3600 + 7.7), clock(100, 2 * 86400 + 50.0)
+    peers = ["203.0.113.10", "203.0.113.11", "198.51.100.12", "198.51.100.13"]
+    port = 40000
+    for i, (clk, start) in enumerate([(a, 0.0), (b, 1.0), (c, 2.0), (a, 8.0), (b, 9.0), (c, 10.0)]):
+        port += 1
+        frames += clocked_session("192.168.70.1", port, peers[i % 4], 443, start, 4.0, clk, clock(1000, 777.0 + i * 1000))
+    server = clock(1000, 40 * 86400 + 3.3)
+    for i, addr in enumerate(["192.168.70.20", "192.168.70.21", "192.168.70.22"]):
+        for j in range(2):
+            frames += clocked_session(f"192.168.70.{50 + j}", 41000 + i * 10 + j, addr, 80, 20.0 + i * 5 + j * 2, 3.0,
+                                      clock(1000, 5000.0 + j * 333), server)
+    # Per partner: one offset for each peer, kept for that peer's connections.
+    offsets = {p: rng.randrange(1 << 31) for p in peers[:2]}
+    for k in range(4):
+        p = peers[k % 2]
+        frames += clocked_session("192.168.70.30", 42000 + k, p, 443, 40.0 + k * 3, 2.5,
+                                  lambda t, o=offsets[p]: int((t + 86400) * 1000) + o, clock(1000, 999.0))
+    # Per connection: a new random offset every time.
+    for k in range(4):
+        o = rng.randrange(1 << 31)
+        frames += clocked_session("192.168.70.40", 43000 + k, peers[k % 4], 443, 60.0 + k * 3, 2.5,
+                                  lambda t, o=o: int((t + 86400) * 1000) + o, clock(1000, 555.0 + k))
+    frames.sort(key=lambda f: f[0])
+    return [(t0 + t, f) for t, f in frames]
+
+
+def dns_answer(txid: int, qname: str, address: str, ttl: int) -> bytes:
+    """A DNS response with one A record and the time to live given (a resolver's cache counts it down)."""
+    labels = b"".join(bytes([len(p)]) + p.encode() for p in qname.split(".") if p) + b"\0"
+    return (struct.pack("!HHHHHH", txid, 0x8180, 1, 1, 0, 0) + labels + struct.pack("!HH", 1, 1)
+            + b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, ttl, 4) + bytes(int(x) for x in address.split(".")))
+
+
+def dhcp_message(mtype: int, mac: str, xid: int, ciaddr="0.0.0.0", yiaddr="0.0.0.0", options=b"") -> bytes:  # noqa: S104
+    """A DHCP message (BOOTP with the magic cookie): type 3 request, 5 ack."""
+    def a(ip):
+        return bytes(int(x) for x in ip.split("."))
+    op = 2 if mtype in (2, 5, 6) else 1
+    body = (struct.pack("!BBBBIHH", op, 1, 6, 0, xid, 0, 0) + a(ciaddr) + a(yiaddr) + bytes(8)  # (siaddr, giaddr: none)
+            + _mac(mac) + b"\0" * 10 + b"\0" * 192 + b"\x63\x82\x53\x63" + bytes([53, 1, mtype]) + options + b"\xff")
+    return body
+
+
+def before_lab(t0=0.0):
+    """A capture that starts in the middle of things (anta/before.py): a connection already open, a
+    device using an address it looked up earlier, the router's DNS cache answering with time used
+    up, a DHCP renewal partway through a 24-hour lease, and a TLS 1.3 session resumed."""
+    from anta.tools.pcapgen import BROWSER_CIPHERS, BROWSER_EXTS, tls_client_hello
+    frames = []
+    add = lambda t, data: frames.append((t0 + t, data))  # noqa: E731
+    # 1. Already open: data both ways, no handshake.
+    for i in range(3):
+        add(0.1 + i, tcp("192.168.60.10", "203.0.113.5", 50000, 443, 9000 + i * 100, 77000 + i * 50, PSH | ACK, b"a" * 100))
+        add(0.15 + i, tcp("203.0.113.5", "192.168.60.10", 443, 50000, 77000 + i * 50, 9100 + i * 100, PSH | ACK, b"b" * 50))
+    # 2. An address known already: a TLS hello by name, no DNS for it anywhere.
+    hello = tls_client_hello("files.example.net", BROWSER_CIPHERS, BROWSER_EXTS)
+    frames.extend(tcp_session("192.168.60.11", 50100, "198.51.100.7", 443, [(True, hello)], t0=t0 + 4))
+    # 3. The router's cache: news.example.org with 1,234 seconds left (of the usual 1,800); it also answers a fresh name.
+    add(6.0, udp("192.168.60.12", "192.168.60.1", 53000, 53, dns_query_msg(0x1111, "news.example.org")))
+    add(6.01, udp("192.168.60.1", "192.168.60.12", 53, 53000, dns_answer(0x1111, "news.example.org", "203.0.113.80", 1234)))
+    add(6.5, udp("192.168.60.12", "192.168.60.1", 53001, 53, dns_query_msg(0x2222, "fresh.example.org")))
+    add(6.52, udp("192.168.60.1", "192.168.60.12", 53, 53001, dns_answer(0x2222, "fresh.example.org", "203.0.113.81", 300)))
+    # 4. A DHCP renewal: it holds 192.168.60.20; the lease is 24 hours, renewal at 12.
+    mac = "02:00:00:00:60:20"
+    lease = bytes([51, 4]) + struct.pack("!I", 86400) + bytes([58, 4]) + struct.pack("!I", 43200)
+    add(8.0, udp("192.168.60.20", "192.168.60.1", 68, 67, dhcp_message(3, mac, 0xABCD, ciaddr="192.168.60.20")))
+    add(8.01, udp("192.168.60.1", "192.168.60.20", 67, 68, dhcp_message(5, mac, 0xABCD, ciaddr="192.168.60.20",
+                                                                         yiaddr="192.168.60.20", options=lease)))
+    # 5. A resumed TLS 1.3 session: the hello offers a pre-shared key (extension 41).
+    resume = tls_client_hello("mail.example.com", BROWSER_CIPHERS, BROWSER_EXTS + [0x0029])
+    frames.extend(tcp_session("192.168.60.13", 50200, "198.51.100.9", 443, [(True, resume)], t0=t0 + 10))
+    # (and a name looked up the ordinary way, which isn't "before")
+    add(12.0, udp("192.168.60.14", "192.168.60.1", 53002, 53, dns_query_msg(0x3333, "seen.example.org")))
+    add(12.01, udp("192.168.60.1", "192.168.60.14", 53, 53002, dns_answer(0x3333, "seen.example.org", "198.51.100.30", 300)))
+    frames.extend(tcp_session("192.168.60.14", 50300, "198.51.100.30", 443,
+                              [(True, tls_client_hello("seen.example.org", BROWSER_CIPHERS, BROWSER_EXTS))], t0=t0 + 12.1))
+    frames.sort(key=lambda f: f[0])
+    return frames
+
+
+def dns_query_msg(txid: int, qname: str) -> bytes:
+    labels = b"".join(bytes([len(p)]) + p.encode() for p in qname.split(".") if p) + b"\0"
+    return struct.pack("!HHHHHH", txid, 0x0100, 1, 0, 0, 0) + labels + struct.pack("!HH", 1, 1)
+
+
+def software_lab(t0=0.0):
+    """A small office whose traffic says what software it runs (anta/software.py): an old
+    Windows 7 browser, an Ubuntu 20.04 machine updating, an old Python, a web server on a flawed
+    Apache and an end-of-life PHP, an Ubuntu SSH server, a backdoored vsftpd (whose client's
+    USER line must never be kept), and an internet server."""
+    frames = []
+
+    def http(client, cport, server, uri, agent, host="example.com", server_hdr="", powered="", t=0.0):
+        req = f"GET {uri} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: {agent}\r\nAccept: */*\r\n\r\n".encode()
+        head = ["HTTP/1.1 200 OK", "Content-Type: text/html", "Content-Length: 2"]
+        if server_hdr:
+            head.append(f"Server: {server_hdr}")
+        if powered:
+            head.append(f"X-Powered-By: {powered}")
+        resp = ("\r\n".join(head) + "\r\n\r\nok").encode()
+        frames.extend(tcp_session(client, cport, server, 80, [(True, req), (False, resp)], t0=t0 + t))
+
+    win7 = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+    http("192.168.50.10", 50001, "93.184.216.34", "/", win7, server_hdr="nginx/1.18.0")
+    http("192.168.50.11", 50002, "91.189.91.83", "/ubuntu/dists/focal/InRelease", "Debian APT-HTTP/1.3 (2.0.10)",
+         host="archive.ubuntu.com", t=1)
+    http("192.168.50.12", 50003, "151.101.0.223", "/simple/requests/",
+         'pip/23.0.1 {"implementation":{"name":"CPython"},"python":"3.8.10","system":{"name":"Linux"}}', host="pypi.org", t=2)
+    http("192.168.50.10", 50004, "192.168.50.20", "/index.php", win7, host="intranet", server_hdr="Apache/2.4.49 (Unix)",
+         powered="PHP/7.4.3", t=3)
+    android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36"
+    http("192.168.50.30", 50005, "93.184.216.34", "/", android, t=4)
+    frames.extend(tcp_session("192.168.50.10", 50006, "192.168.50.21", 22,
+                              [(False, b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10\r\n"), (True, b"SSH-2.0-OpenSSH_9.6\r\n")], t0=t0 + 5))
+    frames.extend(tcp_session("192.168.50.10", 50007, "192.168.50.22", 21,
+                              [(False, b"220 (vsFTPd 2.3.4)\r\n"), (True, b"USER alice\r\n"), (False, b"331 Please specify the password.\r\n")],
+                              t0=t0 + 6))
+    frames.sort(key=lambda f: f[0])
+    return frames
+
+
 def lint_lab(t0=0.0):
     """A capture that breaks the protocol spell-checker's rules (anta/lint.py) once each: crafted
     TCP flags, bad IP headers and sources, odd DNS headers, HTTP that smuggling and scanners use,

@@ -202,6 +202,13 @@ struct Flow {
     // server, SYN/ACK -> ACK the round trip to the client (the speed-of-light check).
     uint64_t syn_ts = 0, synack_ts = 0, hs_ack_ts = 0;
     uint32_t syn_seq = 0;
+    // Each side's TCP timestamp clock (RFC 7323 TSval): the first and the latest reading with
+    // the capture time it arrived, so its rate and starting point can be worked out.
+    struct TsClock {
+        uint64_t t0 = 0, t1 = 0;  // capture times, microseconds
+        uint32_t v0 = 0, v1 = 0;  // TSval readings
+        uint64_t n = 0;
+    } ts_clock[2];
 
     DirStats stats[2];
     std::vector<PayloadEvent> events;  // capped

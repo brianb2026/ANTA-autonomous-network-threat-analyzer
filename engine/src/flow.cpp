@@ -286,6 +286,34 @@ void FlowTable::handle_tcp(Flow& f, const PacketInfo& p, Dir dir) {
     TcpStream& stream = f.tcp[d];
     if (p.window == 0 && !(p.tcp_flags & (TCP_RST | TCP_SYN))) stream.zero_window++;
     if (p.tcp_flags == 0) f.null_flags++;  // no stack sends these: crafted packets, NULL scans
+    if (p.l4 && p.l4_hlen > 20) {  // the TCP timestamp option (kind 8): this side's clock reading
+        const uint8_t* o = p.l4 + 20;
+        size_t len = p.l4_hlen - 20, i = 0;
+        while (i < len) {
+            uint8_t kind = o[i];
+            if (kind == 0) break;
+            if (kind == 1) {
+                ++i;
+                continue;
+            }
+            if (i + 1 >= len || o[i + 1] < 2 || i + o[i + 1] > len) break;
+            if (kind == 8 && o[i + 1] == 10) {
+                uint32_t v = (static_cast<uint32_t>(o[i + 2]) << 24) | (static_cast<uint32_t>(o[i + 3]) << 16) |
+                             (static_cast<uint32_t>(o[i + 4]) << 8) | o[i + 5];
+                auto& c = f.ts_clock[d];
+                if (!c.n) {
+                    c.t0 = c.t1 = p.ts_us;
+                    c.v0 = c.v1 = v;
+                } else if (p.ts_us >= c.t1) {
+                    c.t1 = p.ts_us;
+                    c.v1 = v;
+                }
+                c.n++;
+                break;
+            }
+            i += o[i + 1];
+        }
+    }
     {  // The handshake's timing: the first SYN, the SYN/ACK that answers it, the ACK after that.
         const uint8_t fl = p.tcp_flags;
         if (dir == Dir::ClientToServer && (fl & TCP_SYN) && !(fl & TCP_ACK) && !f.syn_ts) {
@@ -875,6 +903,7 @@ struct FlowTable::H2Events : Http2Handler {
             resp.status = code;
             if (const std::string* v = h2_header(h, "server")) resp.server = v->substr(0, 256);
             if (const std::string* v = h2_header(h, "content-type")) resp.content_type = v->substr(0, 256);
+            if (const std::string* v = h2_header(h, "x-powered-by")) resp.powered_by = v->substr(0, 128);
             f.http_response = std::move(resp);
         }
         st.response = true;

@@ -336,6 +336,7 @@ std::optional<HttpResponse> parse_http_response(const std::string& buf) {
     for (auto& [name, value] : headers) {
         if (name == "server") resp.server = value;
         else if (name == "content-type") resp.content_type = value;
+        else if (name == "x-powered-by") resp.powered_by = value.substr(0, 128);
     }
     return resp;
 }

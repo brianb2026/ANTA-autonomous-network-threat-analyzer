@@ -181,8 +181,22 @@ def validate_session(rec: dict) -> dict:
         out["http_response"] = {"status": int(_num(r.get("status", 0), "http.status", 0, 999)),
                                 "server": _str(r.get("server"), "http.server", 256),
                                 "content_type": _str(r.get("content_type"), "http.content_type", 256)}
+        if r.get("powered_by"):
+            out["http_response"]["powered_by"] = _str(r.get("powered_by"), "http.powered_by", 128)
     else:
         out.pop("http_response", None)
+
+    # Software greetings (an SSH identification line, a server's "220 (vsFTPd 3.0.5)"): printable text only.
+    if isinstance(rec.get("banner"), dict):
+        b = {k: _str(rec["banner"].get(k), f"banner.{k}", 128) for k in ("client", "server") if rec["banner"].get(k)}
+        if any(not re.fullmatch(r"[ -~]*", v) for v in b.values()):
+            raise InvalidRecord("banner: expected printable text")
+        if b:
+            out["banner"] = b
+        else:
+            out.pop("banner", None)
+    else:
+        out.pop("banner", None)
 
     if isinstance(rec.get("http_files"), list):
         files = []
@@ -326,6 +340,16 @@ def validate_session(rec: dict) -> dict:
         for k in ("syn_rtt_ms", "ack_rtt_ms"):  # the handshake's timing (the speed-of-light check)
             if t.get(k) is not None:
                 out["tcp"][k] = float(_num(t[k], f"tcp.{k}", 0, 86_400_000))
+        if isinstance(t.get("clock"), dict):  # each side's TCP timestamp clock: [t0, TSval0, t1, TSval1, readings]
+            clock = {}
+            for d in ("c2s", "s2c"):
+                c = t["clock"].get(d)
+                if isinstance(c, list) and len(c) == 5:
+                    clock[d] = [float(_num(c[0], "clock.t0", 0, 2**40)), int(_num(c[1], "clock.v0", 0, 2**32 - 1)),
+                                float(_num(c[2], "clock.t1", 0, 2**40)), int(_num(c[3], "clock.v1", 0, 2**32 - 1)),
+                                int(_num(c[4], "clock.n", 0, 2**62))]
+            if clock:
+                out["tcp"]["clock"] = clock
     else:
         out.pop("tcp", None)
 

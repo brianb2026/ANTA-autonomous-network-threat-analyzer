@@ -331,14 +331,16 @@ class PacketService:
             self._stats_cache.popitem(last=False)
         return result
 
-    async def packet_times(self, dfilter: str, limit: int) -> list[tuple]:
+    async def packet_times(self, dfilter: str, limit: int, frames: bool = False) -> list[tuple]:
         """(time, source, destination, length) of the packets a display filter selects, in order,
-        at most `limit` of them: what the map's replay draws as arrows."""
+        at most `limit` of them: what the map's replay draws as arrows. frames=True adds each
+        one's frame number."""
         dfilter = _clean_text(dfilter, MAX_DFILTER)
         limit = max(1, min(int(limit), 100_000))
         records = await self._engine(["--packets", *self._input_args(), "--from", "1", "--limit", str(limit), "-Y", dfilter],
                                      timeout=600)
-        return [(float(r["ts"]), str(r.get("src") or ""), str(r.get("dst") or ""), int(r.get("len") or 0))
+        return [(float(r["ts"]), str(r.get("src") or ""), str(r.get("dst") or ""), int(r.get("len") or 0),
+                 *((int(r.get("n") or 0),) if frames else ()))
                 for r in records if r.get("type") == "packet"]
 
     def peek(self) -> tuple[dict | None, list[dict] | None]:

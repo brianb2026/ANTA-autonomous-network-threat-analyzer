@@ -574,6 +574,50 @@ private:
         ff_->proto(name, v ? 0 : off, v ? 0 : std::min(len, b_.n - std::min(off, b_.n)));
     }
 
+    // The Internet checksum (RFC 1071) over n bytes plus `extra`: true when it verifies.
+    static bool sum_ok(const uint8_t* p, size_t n, uint32_t extra) {
+        uint64_t sum = extra;
+        for (size_t i = 0; i + 1 < n; i += 2) sum += (static_cast<uint32_t>(p[i]) << 8) | p[i + 1];
+        if (n & 1) sum += static_cast<uint32_t>(p[n - 1]) << 8;
+        while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+        return sum == 0xFFFF;
+    }
+    // A TCP or UDP checksum with its pseudo-header; true when it verifies or can't be checked
+    // (the frame cut short by the capture's snap length, or quoted inside an ICMP error).
+    bool l4_sum_ok(size_t off, uint8_t proto) const {
+        size_t len = l4_reported_;
+        if (in_error_ || !len || !b_.have(off, len) || !src_ip_.family) return true;
+        size_t alen = src_ip_.family == 4 ? 4 : 16;
+        uint64_t pseudo = proto + (len & 0xFFFF) + (len >> 16);
+        for (const IpAddr* a : {&src_ip_, &dst_ip_})
+            for (size_t i = 0; i < alen; i += 2) pseudo += (static_cast<uint32_t>(a->bytes[i]) << 8) | a->bytes[i + 1];
+        while (pseudo >> 16) pseudo = (pseudo & 0xFFFF) + (pseudo >> 16);
+        return sum_ok(b_.p + off, len, static_cast<uint32_t>(pseudo));
+    }
+
+    // A Client Hello's extension types, in order (its JA3 string's third part; GREASE left out).
+    void hello_extensions(const std::string& ja3) {
+        size_t a = ja3.find(','), b = a == std::string::npos ? a : ja3.find(',', a + 1);
+        if (b == std::string::npos) return;
+        size_t c = ja3.find(',', b + 1);
+        std::string list = ja3.substr(b + 1, c == std::string::npos ? std::string::npos : c - b - 1);
+        size_t pos = 0;
+        int n = 0;
+        while (pos < list.size() && n++ < 64) {
+            size_t dash = list.find('-', pos);
+            std::string item = list.substr(pos, dash == std::string::npos ? std::string::npos : dash - pos);
+            if (!item.empty() && item.size() <= 5 && item.find_first_not_of("0123456789") == std::string::npos)
+                FF(uint("tls.handshake.extension.type", std::stoul(item)));
+            if (dash == std::string::npos) break;
+            pos = dash + 1;
+        }
+    }
+
+    // A fact a filter can find that isn't an expert item (Wireshark doesn't check checksums by default).
+    void flag(const char* name) {
+        if (ff_ && !frozen_) ff_->proto(name, 0, 0);
+    }
+
     // An expert-info item. Like Wireshark, any expert item makes the frame match _ws.expert.
     void expert(const char* name) {
         if (!ff_ || frozen_) return;
@@ -1129,6 +1173,7 @@ private:
             FF(ipv4("ip.dst", b_.p + off + 16));
             FF(ipv4("ip.addr", b_.p + off + 12));
             FF(ipv4("ip.addr", b_.p + off + 16));
+            if (!in_error_ && !sum_ok(b_.p + off, ihl, 0)) flag("ip.checksum_bad");
         }
         if (full_) {
             field(l, "Version", "4", off, 1);
@@ -1410,6 +1455,10 @@ private:
                 *ws_shift = static_cast<int>(std::min<unsigned>(b_.u8(pos + 2), 14));
                 FF(uint("tcp.options.wscale.shift", b_.u8(pos + 2)));
             }
+            if (kind == 8 && olen == 10) {
+                FF(uint("tcp.options.timestamp.tsval", b_.u32(pos + 2)));
+                FF(uint("tcp.options.timestamp.tsecr", b_.u32(pos + 6)));
+            }
             if (kind == 2 && olen == 4) {
                 FF(uint("tcp.options.mss_val", b_.u16(pos + 2)));
                 fwd.mss = b_.u16(pos + 2);
@@ -1582,6 +1631,7 @@ private:
         Layer& l = layer("Transmission Control Protocol", off, hlen);
         if (ff_) {
             fproto("tcp", off, end > off ? end - off : hlen);
+            if (!l4_sum_ok(off, 6)) flag("tcp.checksum_bad");
             FF(uint("tcp.srcport", sport));
             FF(uint("tcp.dstport", dport));
             FF(uint("tcp.port", sport));
@@ -2343,6 +2393,8 @@ private:
         }
         if (ff_) {
             fproto("udp", off, end > off ? end - off : 8);
+            if (b_.u16(off + 6) != 0 || src_ip_.family == 6)  // (0: an IPv4 sender that computed none)
+                if (!l4_sum_ok(off, 17)) flag("udp.checksum_bad");
             FF(uint("udp.srcport", sport));
             FF(uint("udp.dstport", dport));
             FF(uint("udp.port", sport));
@@ -5214,6 +5266,8 @@ private:
                 if (auto ch = parse_tls_client_hello(rec)) {
                     if (!ch->sni.empty()) col_append(" (SNI=" + ch->sni + ")");
                     if (!ch->sni.empty()) FF(string("tls.handshake.extensions_server_name", ch->sni));
+                    hello_extensions(ch->ja3);
+                    if (b_.have(m + 38, 1)) FF(uint("tls.handshake.session_id_length", b_.u8(m + 38)));
                     FF(string("tls.handshake.ja3_full", ch->ja3));  // Wireshark's names
                     FF(string("tls.handshake.ja3", ch->ja3_hash));
                     FF(string("tls.handshake.ja3_hash", ch->ja3_hash));
@@ -6097,6 +6151,8 @@ private:
             if (ff_) {  // records in every section carry their fields
                 FF(string("dns.resp.name", name.empty() ? "<Root>" : name));
                 FF(uint("dns.resp.type", type));
+                FF(uint("dns.resp.ttl", (static_cast<uint32_t>(m[next + 4]) << 24) | (static_cast<uint32_t>(m[next + 5]) << 16) |
+                                        (static_cast<uint32_t>(m[next + 6]) << 8) | m[next + 7]));
                 if (type == 1 && rdlen == 4) FF(ipv4("dns.a", m + rd));
                 if (type == 28 && rdlen == 16) FF(ipv6("dns.aaaa", m + rd));
                 if (i < an && ((type == 1 && rdlen == 4) || (type == 28 && rdlen == 16)))  // name -> address
@@ -6208,7 +6264,18 @@ private:
                         field(l, "Option: (54) DHCP Server Identifier", ipv4s(b_.p + v), pos, olen + 2);
                     }
                     break;
-                case 51: if (olen == 4) field(l, "Option: (51) IP Address Lease Time", fmt("%u s", b_.u32(v)), pos, olen + 2); break;
+                case 51:
+                    if (olen == 4) {
+                        FF(uint("dhcp.option.dhcp_lease_time", b_.u32(v)));
+                        field(l, "Option: (51) IP Address Lease Time", fmt("%u s", b_.u32(v)), pos, olen + 2);
+                    }
+                    break;
+                case 58:
+                    if (olen == 4) {
+                        FF(uint("dhcp.option.renewal_time_value", b_.u32(v)));
+                        field(l, "Option: (58) Renewal Time Value", fmt("%u s", b_.u32(v)), pos, olen + 2);
+                    }
+                    break;
                 case 1: if (olen == 4) field(l, "Option: (1) Subnet Mask", ipv4s(b_.p + v), pos, olen + 2); break;
                 case 3:
                     if (olen >= 4) {
@@ -8676,6 +8743,7 @@ private:
         FF(uint("tls.handshake.type", 1));
         quic_hello_checks(qc.crypto.head(), false);
         if (!ch->sni.empty()) FF(string("tls.handshake.extensions_server_name", ch->sni));
+        hello_extensions(ch->ja3);
         FF(string("tls.handshake.ja3_full", ch->ja3));
         FF(string("tls.handshake.ja3", ch->ja3_hash));
         FF(string("tls.handshake.ja4", ch->ja4));
