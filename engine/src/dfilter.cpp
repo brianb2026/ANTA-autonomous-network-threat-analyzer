@@ -231,8 +231,6 @@ const Entry kFields[] = {
     {"tcp.urgent_pointer", Kind::Uint, "Urgent pointer"},
     {"tcp.options.mss_val", Kind::Uint, "MSS option"},
     {"tcp.options.wscale.shift", Kind::Uint, "Window scale option"},
-    {"tcp.options.timestamp.tsval", Kind::Uint, "TCP timestamp value (the sender's clock)"},
-    {"tcp.options.timestamp.tsecr", Kind::Uint, "TCP timestamp echo reply"},
     {"tcp.analysis.flags", Kind::Proto, "Any TCP analysis flag"},
     {"tcp.analysis.retransmission", Kind::Proto, "Retransmission"},
     {"tcp.analysis.fast_retransmission", Kind::Proto, "Fast retransmission"},
