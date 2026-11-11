@@ -309,18 +309,6 @@ std::string serialize(const Flow& f, bool final, const std::string& capture_path
     if (f.proto == 6) {
         w.key("tcp").begin_object();
         w.kv("handshake", f.handshake_seen);
-        if (f.ts_clock[0].n || f.ts_clock[1].n) {  // [first time, first TSval, last time, last TSval, readings]
-            w.key("clock").begin_object();
-            for (int d = 0; d < 2; ++d) {
-                const auto& c = f.ts_clock[d];
-                if (!c.n) continue;
-                w.key(dir_names[d]).begin_array();
-                w.value(static_cast<double>(c.t0) / 1e6).value(static_cast<uint64_t>(c.v0));
-                w.value(static_cast<double>(c.t1) / 1e6).value(static_cast<uint64_t>(c.v1)).value(c.n);
-                w.end_array();
-            }
-            w.end_object();
-        }
         w.kv("closed", f.closed);
         w.kv("rst", f.tcp[0].rst_seen || f.tcp[1].rst_seen);
         uint64_t retrans = 0, ooo = 0, gaps = 0, zero_win = 0;

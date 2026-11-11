@@ -113,6 +113,9 @@ struct Host {
 struct MacInfo {
     std::string vendor;
     std::set<std::string> src_ips, arp_ips;
+    // When each address was used from this MAC (first and last frame), so a device's change of
+    // address shows as one span ending and the next beginning.
+    std::map<std::string, std::pair<double, double>> ip_spans;
     uint64_t frames = 0;
 };
 
@@ -299,6 +302,13 @@ public:
                 if (const FieldValue* v = ff.first_outer(esrc ? "eth.src.oui_resolved" : "sll.src.oui_resolved"))
                     mi.vendor = v->s;
                 if (mi.src_ips.size() < 64) mi.src_ips.insert(s);
+                auto sp = mi.ip_spans.find(s);
+                if (sp != mi.ip_spans.end()) {
+                    sp->second.first = std::min(sp->second.first, ts);
+                    sp->second.second = std::max(sp->second.second, ts);
+                } else if (mi.ip_spans.size() < 64) {
+                    mi.ip_spans.emplace(s, std::make_pair(ts, ts));
+                }
             }
             if (tcp || udp) {
                 auto& eps4 = tcp ? tcp_ : udp_;
@@ -542,6 +552,13 @@ public:
             w.end_array();
             w.key("arp_ips").begin_array();
             for (const auto& ip : mi.arp_ips) w.value(ip);
+            w.end_array();
+            w.key("ip_spans").begin_array();  // [address, first, last]
+            k = 0;
+            for (const auto& [ip, span] : mi.ip_spans) {
+                if (++k > 16) break;
+                w.begin_array().value(ip).value(span.first).value(span.second).end_array();
+            }
             w.end_array().end_object();
         }
         w.end_array();

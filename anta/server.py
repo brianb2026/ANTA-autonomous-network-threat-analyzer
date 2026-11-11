@@ -30,9 +30,9 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from aiohttp import WSMsgType, web
 
-from . import (apps, ask, ask_answers, assets, before, casefile, clocks, diagnose, explain_ai, flowlog, geoip, hunt, ignore,
-               ingest, lint, logins, netmap, paths, personality, physics, policy, quicklook, quiet, rhythm, rules, scopes, seal,
-               settings, software, storyline, timeline, triage)
+from . import (apps, ask, ask_answers, assets, before, casefile, diagnose, explain_ai, flowlog, geoip, hunt, ignore,
+               ingest, lint, logins, moves, netmap, paths, personality, physics, policy, quicklook, quiet, rhythm, rules,
+               scopes, seal, settings, software, storyline, timeline, triage)
 from .agent import PROVIDERS, AgentError, AgentSettings, Reviewer
 from .agent_context import AgentContext
 from .analyzer import TITLES, TRIAGE_STATUSES, Analyzer, alert_summary
@@ -1816,14 +1816,26 @@ class Dashboard:
         except PacketError as exc:
             return json_response({"error": str(exc)}, status=exc.status)
 
-    async def clocks_get(self, request: web.Request) -> web.Response:
-        """Machines behind addresses (clocks.py): several machines behind one address, one machine
-        behind several, from the clocks their TCP timestamps read."""
+    async def moves_get(self, request: web.Request) -> web.Response:
+        """Devices that changed address (moves.py): one device followed across its IP addresses and
+        MACs, from what it says about itself (MAC, host name, DHCP request), and addresses that
+        changed hands."""
         try:
-            sessions = await self._sessions_in(request)
+            scope = self._scope(request.query.get("scope"))
+            within = self._within(scope, "")
+            st = await self.packets.stats(within, "", 0, [])
+            dhcp = await self.packets.frames_with_fields(
+                self._within(scope, "dhcp"), "dhcp.option.dhcp,dhcp.hw.mac_addr,dhcp.option.hostname,dhcp.option.vendor_class_id,"
+                "dhcp.option.request_list_item,dhcp.ip.your,dhcp.ip.client", 20000)
         except PacketError as exc:
             return json_response({"error": str(exc)}, status=exc.status)
-        return json_response(await asyncio.get_running_loop().run_in_executor(None, clocks.analyse, sessions))
+        rows = [r for r in dhcp if r.get("type") == "packet"]
+        result = await asyncio.get_running_loop().run_in_executor(None, moves.link, st["stats"], rows)
+        props = st["stats"].get("properties") or {}
+        result["start"], result["end"] = (props.get("first"), props.get("last")) if props.get("frames") else (None, None)
+        result["names"] = [os.path.basename(p) for p, _ in self.packets.files.inputs()]
+        result["scoped"] = bool(scope)
+        return json_response(result)
 
     async def before_get(self, request: web.Request) -> web.Response:
         """Before the capture (before.py): what the recorded traffic shows happened before recording
@@ -2438,7 +2450,7 @@ class Dashboard:
         app.router.add_get("/api/seal", self.seal_get)
         app.router.add_get("/api/quiet", self.quiet_get)
         app.router.add_get("/api/before", self.before_get)
-        app.router.add_get("/api/clocks", self.clocks_get)
+        app.router.add_get("/api/moves", self.moves_get)
         app.router.add_post("/api/seal", self.seal_post)
         app.router.add_put("/api/physics/point", self.physics_point_put)
         app.router.add_get("/api/physics/world", self.physics_world)

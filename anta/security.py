@@ -340,16 +340,6 @@ def validate_session(rec: dict) -> dict:
         for k in ("syn_rtt_ms", "ack_rtt_ms"):  # the handshake's timing (the speed-of-light check)
             if t.get(k) is not None:
                 out["tcp"][k] = float(_num(t[k], f"tcp.{k}", 0, 86_400_000))
-        if isinstance(t.get("clock"), dict):  # each side's TCP timestamp clock: [t0, TSval0, t1, TSval1, readings]
-            clock = {}
-            for d in ("c2s", "s2c"):
-                c = t["clock"].get(d)
-                if isinstance(c, list) and len(c) == 5:
-                    clock[d] = [float(_num(c[0], "clock.t0", 0, 2**40)), int(_num(c[1], "clock.v0", 0, 2**32 - 1)),
-                                float(_num(c[2], "clock.t1", 0, 2**40)), int(_num(c[3], "clock.v1", 0, 2**32 - 1)),
-                                int(_num(c[4], "clock.n", 0, 2**62))]
-            if clock:
-                out["tcp"]["clock"] = clock
     else:
         out.pop("tcp", None)
 

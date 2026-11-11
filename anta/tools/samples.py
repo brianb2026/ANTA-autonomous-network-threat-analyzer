@@ -1476,69 +1476,6 @@ def database_lab(t0=0.0):
     return sorted(frames, key=lambda f: f[0])
 
 
-def ts_option(tsval: int, tsecr: int = 0) -> bytes:
-    """NOP, NOP, Timestamps (RFC 7323): the sender's clock reading."""
-    return b"\x01\x01\x08\x0a" + struct.pack("!II", tsval & 0xFFFFFFFF, tsecr & 0xFFFFFFFF)
-
-
-def clocked_session(client, cport, server, sport, t0, seconds, client_clock, server_clock, step=0.5):
-    """A connection whose packets carry both sides' TCP timestamps; *_clock(t) gives a side's reading at t."""
-    frames = []
-    cseq, sseq = 1000, 5000
-    frames.append((t0, tcp(client, server, cport, sport, cseq, 0, SYN, opts=ts_option(client_clock(t0)))))
-    frames.append((t0 + 0.01, tcp(server, client, sport, cport, sseq, cseq + 1, SYN | ACK,
-                                  opts=ts_option(server_clock(t0 + 0.01), client_clock(t0)))))
-    cseq += 1
-    sseq += 1
-    t = t0 + 0.02
-    while t < t0 + seconds:
-        frames.append((t, tcp(client, server, cport, sport, cseq, sseq, PSH | ACK, b"q" * 40, opts=ts_option(client_clock(t)))))
-        cseq += 40
-        frames.append((t + 0.01, tcp(server, client, sport, cport, sseq, cseq, PSH | ACK, b"r" * 60,
-                                     opts=ts_option(server_clock(t + 0.01)))))
-        sseq += 60
-        t += step
-    return frames
-
-
-def clock_lab(t0=0.0):
-    """Machines behind addresses (anta/clocks.py): a travel router hiding three machines behind
-    192.168.70.1 (two 1000/s clocks started at different times and one ticking 100/s), one server
-    answering from three addresses with one clock, a Linux-like host that randomises its clock per
-    partner, and one that randomises per connection."""
-    import random
-    rng = random.Random(70)
-
-    def clock(rate, started):  # a reading at capture time t of a clock that read 0 at `started` (seconds before base)
-        return lambda t: int((t + started) * rate)
-
-    frames = []
-    a, b, c = clock(1000, 3 * 86400 + 123.4), clock(1000, 9 * 3600 + 7.7), clock(100, 2 * 86400 + 50.0)
-    peers = ["203.0.113.10", "203.0.113.11", "198.51.100.12", "198.51.100.13"]
-    port = 40000
-    for i, (clk, start) in enumerate([(a, 0.0), (b, 1.0), (c, 2.0), (a, 8.0), (b, 9.0), (c, 10.0)]):
-        port += 1
-        frames += clocked_session("192.168.70.1", port, peers[i % 4], 443, start, 4.0, clk, clock(1000, 777.0 + i * 1000))
-    server = clock(1000, 40 * 86400 + 3.3)
-    for i, addr in enumerate(["192.168.70.20", "192.168.70.21", "192.168.70.22"]):
-        for j in range(2):
-            frames += clocked_session(f"192.168.70.{50 + j}", 41000 + i * 10 + j, addr, 80, 20.0 + i * 5 + j * 2, 3.0,
-                                      clock(1000, 5000.0 + j * 333), server)
-    # Per partner: one offset for each peer, kept for that peer's connections.
-    offsets = {p: rng.randrange(1 << 31) for p in peers[:2]}
-    for k in range(4):
-        p = peers[k % 2]
-        frames += clocked_session("192.168.70.30", 42000 + k, p, 443, 40.0 + k * 3, 2.5,
-                                  lambda t, o=offsets[p]: int((t + 86400) * 1000) + o, clock(1000, 999.0))
-    # Per connection: a new random offset every time.
-    for k in range(4):
-        o = rng.randrange(1 << 31)
-        frames += clocked_session("192.168.70.40", 43000 + k, peers[k % 4], 443, 60.0 + k * 3, 2.5,
-                                  lambda t, o=o: int((t + 86400) * 1000) + o, clock(1000, 555.0 + k))
-    frames.sort(key=lambda f: f[0])
-    return [(t0 + t, f) for t, f in frames]
-
-
 def dns_answer(txid: int, qname: str, address: str, ttl: int) -> bytes:
     """A DNS response with one A record and the time to live given (a resolver's cache counts it down)."""
     labels = b"".join(bytes([len(p)]) + p.encode() for p in qname.split(".") if p) + b"\0"
@@ -1596,6 +1533,111 @@ def before_lab(t0=0.0):
 def dns_query_msg(txid: int, qname: str) -> bytes:
     labels = b"".join(bytes([len(p)]) + p.encode() for p in qname.split(".") if p) + b"\0"
     return struct.pack("!HHHHHH", txid, 0x0100, 1, 0, 0, 0) + labels + struct.pack("!HH", 1, 1)
+
+
+def with_macs(frame: bytes, src: str, dst: str = "ff:ff:ff:ff:ff:ff") -> bytes:
+    """The same frame from another network card (Ethernet source and destination MACs)."""
+    return _mac(dst) + _mac(src) + frame[12:]
+
+
+def udp6(src: str, dst: str, sport: int, dport: int, payload: bytes, src_mac: str, dst_mac: str) -> bytes:
+    """A UDP datagram over IPv6, checksum included (IPv6 requires one)."""
+    a, b = socket.inet_pton(socket.AF_INET6, src), socket.inet_pton(socket.AF_INET6, dst)
+    n = 8 + len(payload)
+    c = checksum(a + b + struct.pack("!IxxxB", n, 17) + struct.pack("!HHHH", sport, dport, n, 0) + payload) or 0xFFFF
+    body = struct.pack("!HHHH", sport, dport, n, c) + payload
+    return _mac(dst_mac) + _mac(src_mac) + b"\x86\xdd" + struct.pack("!IHBB", 6 << 28, n, 17, 64) + a + b + body
+
+
+def _dhcp_opts(name=None, vendor=None, prl=(), requested=None, server=None):
+    out = b""
+    if requested:
+        out += bytes([50, 4]) + socket.inet_aton(requested)
+    if server:
+        out += bytes([54, 4]) + socket.inet_aton(server)
+    if name:
+        out += bytes([12, len(name)]) + name.encode()
+    if vendor:
+        out += bytes([60, len(vendor)]) + vendor.encode()
+    if prl:
+        out += bytes([55, len(prl)]) + bytes(prl)
+    return out
+
+
+def moves_lab(t0=0.0):
+    """Devices changing addresses (anta/moves.py) on 192.168.61.0/24: a laptop DHCP moves to a new
+    address; a phone whose private Wi-Fi address (MAC) changes but keeps its name; two phones both
+    called "iPhone" at once (not one device) and a third whose MAC changes with a matching DHCP
+    request; one address used by a printer, then by a different device; one server on two network
+    connections; two devices with one name from different systems; and a NAS with IPv4 and IPv6."""
+    router, rmac = "192.168.61.1", "00:0c:29:61:00:01"
+    apple_prl, android_prl = (1, 121, 3, 6, 15, 119, 252, 95, 44, 46), (1, 3, 6, 15, 26, 28, 51, 58, 59, 43)
+    frames = []
+    xid = [0x6100]
+
+    def dhcp(t, mac, ip, name=None, vendor=None, prl=(), release_ip=None):
+        """A device asking for an address (request and the router's ack), or giving one back."""
+        xid[0] += 1
+        if release_ip:
+            frames.append((t, with_macs(udp(release_ip, router, 68, 67, dhcp_message(7, mac, xid[0], ciaddr=release_ip,
+                                                                                   options=_dhcp_opts(server=router))), mac, rmac)))
+            return
+        opts = _dhcp_opts(name, vendor, prl, requested=ip, server=router)
+        frames.append((t, with_macs(udp("0.0.0.0", "255.255.255.255", 68, 67, dhcp_message(3, mac, xid[0], options=opts)), mac)))  # noqa: S104
+        frames.append((t + 0.01, with_macs(udp(router, "255.255.255.255", 67, 68,
+                                               dhcp_message(5, mac, xid[0], yiaddr=ip, options=_dhcp_opts(server=router))), rmac)))
+
+    def talk(mac, ip, start, end, every=10.0):
+        t = start
+        while t <= end:
+            frames.append((t, with_macs(udp(ip, router, 50000, 9999, b"hello"), mac, rmac)))
+            t += every
+
+    # The router forwards internet traffic (its MAC carries internet addresses: not a device here).
+    for k in range(5):
+        frames.append((5.0 + k * 50, with_macs(udp("93.184.216.34", "192.168.61.95", 443, 50001, b"x" * 20), rmac, "00:11:32:61:00:95")))
+    # A laptop: DHCP moves it from .23 to .41; it gives the old address back first.
+    dhcp(0.0, "3c:22:fb:61:00:23", "192.168.61.23", "alex-laptop", None, apple_prl)
+    talk("3c:22:fb:61:00:23", "192.168.61.23", 1.0, 100.0)
+    dhcp(101.0, "3c:22:fb:61:00:23", None, release_ip="192.168.61.23")
+    dhcp(120.0, "3c:22:fb:61:00:23", "192.168.61.41", "alex-laptop", None, apple_prl)
+    talk("3c:22:fb:61:00:23", "192.168.61.41", 121.0, 250.0)
+    # A phone with a private Wi-Fi address that changes; it keeps its name.
+    dhcp(0.5, "6a:11:22:61:00:50", "192.168.61.50", "Sams-Phone", "android-dhcp-14", android_prl)
+    talk("6a:11:22:61:00:50", "192.168.61.50", 1.5, 90.0)
+    dhcp(130.0, "9e:66:77:61:00:51", "192.168.61.51", "Sams-Phone", "android-dhcp-14", android_prl)
+    talk("9e:66:77:61:00:51", "192.168.61.51", 131.0, 250.0)
+    # Two phones called "iPhone" at the same time: two devices.
+    for mac, ip in (("22:aa:bb:61:00:60", "192.168.61.60"), ("5a:cc:dd:61:00:61", "192.168.61.61")):
+        dhcp(1.0, mac, ip, "iPhone", None, apple_prl)
+        talk(mac, ip, 2.0, 250.0)
+    # A third "iPhone" changes its private address: the same request, starting just after.
+    dhcp(1.2, "1e:01:02:61:00:62", "192.168.61.62", "iPhone", None, apple_prl)
+    talk("1e:01:02:61:00:62", "192.168.61.62", 2.2, 80.0)
+    dhcp(95.0, "2e:03:04:61:00:63", "192.168.61.63", "iPhone", None, apple_prl)
+    talk("2e:03:04:61:00:63", "192.168.61.63", 96.0, 250.0)
+    # One address, two devices: a printer, then a kiosk.
+    dhcp(1.4, "00:11:22:61:00:70", "192.168.61.70", "printer-2f", None, (1, 3, 6))
+    talk("00:11:22:61:00:70", "192.168.61.70", 2.4, 60.0)
+    dhcp(150.0, "00:1b:63:61:00:71", "192.168.61.70", "kiosk-3", "MSFT 5.0", (1, 3, 6, 15, 31, 33, 43, 44, 46, 47))
+    talk("00:1b:63:61:00:71", "192.168.61.70", 151.0, 250.0)
+    # One server on two connections (Wi-Fi and a cable) at once.
+    for mac, ip in (("00:1b:21:61:00:80", "192.168.61.80"), ("00:1b:21:61:00:81", "192.168.61.81")):
+        dhcp(1.6, mac, ip, "build-server", "udhcp 1.36.1", (1, 3, 6, 12, 15, 28, 42))
+        talk(mac, ip, 2.6, 250.0)
+    # One name, two systems: not linked.
+    dhcp(1.8, "00:1a:11:61:00:90", "192.168.61.90", "kitchen-display", "MSFT 5.0", (1, 3, 6, 15))
+    talk("00:1a:11:61:00:90", "192.168.61.90", 2.8, 100.0)
+    dhcp(160.0, "00:1a:11:61:00:91", "192.168.61.91", "kitchen-display", "udhcp 1.36.1", (1, 3, 6, 12))
+    talk("00:1a:11:61:00:91", "192.168.61.91", 161.0, 250.0)
+    # A NAS with IPv4 and an IPv6 link-local address at once.
+    dhcp(2.0, "00:11:32:61:00:95", "192.168.61.95", "nas-01", "udhcp 1.36.1", (1, 3, 6, 12, 15, 28, 42))
+    talk("00:11:32:61:00:95", "192.168.61.95", 3.0, 250.0)
+    for k in range(10):
+        frames.append((3.5 + k * 25, udp6("fe80::211:32ff:fe61:95", "ff02::fb", 5353, 5353, b"\0" * 12,
+                                          "00:11:32:61:00:95", "33:33:00:00:00:fb")))
+    frames.sort(key=lambda f: f[0])
+    return [(t0 + t, f) for t, f in frames]
 
 
 def software_lab(t0=0.0):

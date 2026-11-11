@@ -1455,10 +1455,6 @@ private:
                 *ws_shift = static_cast<int>(std::min<unsigned>(b_.u8(pos + 2), 14));
                 FF(uint("tcp.options.wscale.shift", b_.u8(pos + 2)));
             }
-            if (kind == 8 && olen == 10) {
-                FF(uint("tcp.options.timestamp.tsval", b_.u32(pos + 2)));
-                FF(uint("tcp.options.timestamp.tsecr", b_.u32(pos + 6)));
-            }
             if (kind == 2 && olen == 4) {
                 FF(uint("tcp.options.mss_val", b_.u16(pos + 2)));
                 fwd.mss = b_.u16(pos + 2);

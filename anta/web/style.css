@@ -1370,3 +1370,16 @@ body.focused .view-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--
 .before-dot.est { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
 .before-window { stroke: var(--accent); stroke-width: 4; stroke-opacity: .35; }
 .before-item .lint-top > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+
+/* Devices that changed address: when each address was used, shaded by network card. */
+.mv-strip { display: block; width: 100%; max-width: 640px; height: auto; margin: 4px 0; }
+.mv-ip { font: 11px var(--mono); fill: var(--text); }
+.mv-lane { fill: var(--bg); stroke: var(--line); }
+.mv-bar { stroke: var(--panel); stroke-width: 1; }
+.mv-mac0 { fill: var(--accent); }
+.mv-mac1 { fill: var(--series-in); }
+.mv-mac2 { fill: var(--accent); fill-opacity: .45; }
+.mv-mac3 { fill: var(--dim); fill-opacity: .55; }
+.mv-tick { font: 10px var(--sans); fill: var(--dim); }
+.mv-changes { margin: 4px 0; }
+.mv-changes li { margin: 2px 0; overflow-wrap: anywhere; }
